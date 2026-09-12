@@ -231,3 +231,14 @@ of eval points to confirm it isn't another single-rollout blip like the
 ("still 0% at 27K") wasn't met, so the architecture stays frozen and training
 continues unmodified. `train/loss` still in its usual 0.05–0.10 band, not used
 for this decision. No action taken.
+
+**02:19 — hourly cron check.** Epoch 38200/100K. Full `eval/mean` sequence
+by step (2500→37500): 0, 0, 0, 0, 11, 11, 0, 0, 11, 0, **22**, 0, **22**, 11, 0.
+Noisy, no monotonic trend, but the non-zero signal keeps recurring and is now
+spread across *different* tasks at different checkpoints — hinge_cabinet hit
+67% at 27500, top_burner independently hit 67% at 32500 — which makes chance
+alone a weaker explanation than at the last check. `microwave` has been 0% at
+every single eval point so far; worth watching whether it ever breaks 0%.
+Nothing here crosses an action threshold: the run is past the 27K decision
+point, the trigger already didn't fire, and this check reinforces that call
+rather than reversing it. No action taken.
