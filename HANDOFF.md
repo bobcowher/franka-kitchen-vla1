@@ -298,3 +298,18 @@ last three checks. At the current pace (~2.4 epochs/sec including eval
 overhead) the run has roughly ~18,300 epochs left, projecting completion
 around **09:2X** — right around when Robert said he'd check back in. No
 trigger crossed. No action taken.
+
+**08:19 — hourly cron check.** Epoch 90000/100K, ~10K epochs left (~1h at
+current pace — still tracking a ~09:2X finish). Last four checkpoints:
+0% (82500), 11% (85000, hinge_cabinet 33%), 0% (87500), 0% (90000) — the
+quietest stretch since the 40K peak. TensorBoard's own trend call has
+shifted from "improving" to **"stable... appears to have plateaued"** for
+`eval/mean`, `hinge_cabinet`, and `top_burner` — i.e. the run looks like
+it settled into this noisy-but-mostly-low regime rather than climbing
+toward the 40K peak again. `train/loss` is still in its best-ever region
+(0.044–0.07), so training hasn't broken; the ceiling looks like it's on the
+eval/rollout side. Nothing actionable: no trigger fits "plateaued below an
+earlier peak," and this is exactly the kind of judgment call — is 40K's
+checkpoint better than what training converges to at 100K? — that's
+Robert's to make in the morning, not something to act on unilaterally
+tonight. No action taken.
