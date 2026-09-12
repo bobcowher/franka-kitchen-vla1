@@ -37,6 +37,33 @@ IMAGE_MEAN = 0.5
 IMAGE_STD = 0.5
 
 
+class ActionHead(nn.Module):
+    """The entire action capability: two LayerNorms and one Linear.
+
+    Each stream is normalised on its own rather than jointly. They have quite
+    different scales -- the last token carries SmolLM2's massive-activation
+    outliers, where ||mean|| is 53.8 against ||deviation|| 2.8, while the pooled
+    image vector is an average over 64 positions and is much tamer. One
+    LayerNorm across the concatenation normalises them together and gives up
+    most of the gain; separate norms measured 0.0934 held out against 0.0961.
+
+    No tanh. The BC stack had one, and with +/-1 gripper targets it makes zero
+    loss unreachable -- which would blunt the only unambiguous test this design
+    has, overfitting a handful of samples until loss vanishes. The env clips to
+    the joint velocity bounds anyway (_ctrl_velocity_limits).
+    """
+
+    def __init__(self, hidden, num_actions):
+        super().__init__()
+        self.norm_last = nn.LayerNorm(hidden)
+        self.norm_pooled = nn.LayerNorm(hidden)
+        self.out = nn.Linear(hidden * 2, num_actions)
+
+    def forward(self, last, pooled):
+        return self.out(torch.cat([self.norm_last(last),
+                                   self.norm_pooled(pooled)], dim=1))
+
+
 class Model(nn.Module):
 
     def __init__(self, num_actions, checkpoint_dir='checkpoints',
@@ -60,20 +87,7 @@ class Model(nn.Module):
             VLM, dtype=torch.bfloat16, attn_implementation="sdpa").model
         self.vlm.requires_grad_(False)
 
-        # The LayerNorm is not decoration. Measured on ten real frames, the last
-        # hidden state is 95% constant: ||mean|| 53.8 against ||deviation|| 2.8,
-        # with dim 232 alone carrying |mean| 34.0, sixty times the median dim.
-        # That is SmolLM2's massive-activation outliers, and a bare Linear reading
-        # them stalls -- 0.0075 after 400 steps where this reaches 0.000000.
-        # Centering and rescaling per sample is what puts the 5% that varies with
-        # the image on the same footing as the 95% that never does.
-        #
-        # No tanh. The BC stack had one, and with +/-1 gripper targets it makes
-        # zero loss unreachable -- which would blunt the only unambiguous test
-        # this design has, overfitting a handful of samples until loss vanishes.
-        # The env clips to the joint velocity bounds anyway (_ctrl_velocity_limits).
-        self.head = nn.Sequential(nn.LayerNorm(HIDDEN),
-                                  nn.Linear(HIDDEN, num_actions))
+        self.head = ActionHead(HIDDEN, num_actions)
 
         self.name = name
         self.checkpoint_dir = checkpoint_dir
@@ -111,6 +125,12 @@ class Model(nn.Module):
                              persistent=False)
         self.register_buffer("prompt_end", tokens["attention_mask"].sum(1) - 1,
                              persistent=False)
+        # Which positions hold the image. 64 of the 84, identical across tasks
+        # because the frame precedes the instruction in the chat template.
+        self.register_buffer(
+            "image_positions",
+            (tokens["input_ids"] == processor.tokenizer.convert_tokens_to_ids(
+                "<image>")).unsqueeze(-1), persistent=False)
 
     def train(self, mode=True):
         """Keep the VLM in eval even while the head trains.
@@ -144,15 +164,30 @@ class Model(nn.Module):
 
     def forward(self, frames, task):
         task = task.reshape(-1).to(self.device)
-        pixel_values = self.preprocess(frames)
 
-        out = self.vlm(input_ids=self.prompt_ids[task],
-                       attention_mask=self.prompt_mask[task],
-                       pixel_values=pixel_values)
+        h = self.vlm(input_ids=self.prompt_ids[task],
+                     attention_mask=self.prompt_mask[task],
+                     pixel_values=self.preprocess(frames)).last_hidden_state.float()
 
-        last = out.last_hidden_state[torch.arange(len(task), device=self.device),
-                                     self.prompt_end[task]]
-        return self.head(last.float())
+        # Two readouts, because neither alone is enough. The last token is the
+        # only position that has seen the instruction -- the image precedes the
+        # text and attention is causal, so no image position can ever know which
+        # task this is. The image positions are the wide channel: 64 vectors
+        # summarising the scene, against one that reached the end through
+        # attention weights trained to predict text.
+        #
+        # Held-out weighted MSE over 1583 steps from 18 unseen episodes:
+        #   last only                  0.1018
+        #   pooled only                0.0963   <- but cannot read the task
+        #   both, separate norms       0.0934
+        # Pooling wins on average because mid-episode the scene usually reveals
+        # what is underway. At t=0 all three tasks look identical and only the
+        # instruction separates them, which is the step that decides the episode.
+        last = h[torch.arange(len(task), device=self.device), self.prompt_end[task]]
+        mask = self.image_positions[task]
+        pooled = (h * mask).sum(1) / mask.sum(1)
+
+        return self.head(last, pooled)
 
     @property
     def device(self):

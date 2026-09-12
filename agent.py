@@ -80,9 +80,12 @@ class Agent:
         return ObsReshapeWrapper(env, image_size=self.image_size)
 
     def train(self, epochs, batch_size):
-        summary_writer_name = f'runs/{datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
-        summary_writer_name = summary_writer_name + f"_bs={batch_size}"
-        summary_writer = SummaryWriter(summary_writer_name)
+        # Beekeeper injects BEEKEEPER_TENSORBOARD_DIR and serves whatever lands
+        # there; locally it is unset and this stays runs/ as before.
+        runs_dir = os.environ.get("BEEKEEPER_TENSORBOARD_DIR", "runs")
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        summary_writer = SummaryWriter(
+            os.path.join(runs_dir, f"{stamp}_bs={batch_size}"))
 
         for epoch in range(epochs):
             states, actions, _, _, tasks = self.dataset.sample_batch(batch_size)
@@ -112,14 +115,23 @@ class Agent:
                 print(f"Epoch: {epoch} Loss: {loss.item()}")
                 self.model.save_checkpoint()
 
-            if(epoch and epoch % 1000 == 0):
+            # Every 2500 rather than 1000: a rollout is ~400 VLM forwards at
+            # batch 1, so an eval block costs minutes, and on a 100K run the old
+            # cadence would spend hours of the budget evaluating.
+            if(epoch and epoch % 2500 == 0):
                 self.eval(epoch, summary_writer)
 
     def eval(self, epoch, summary_writer):
+        rates = []
         for task in EVAL_TASKS:
             rate = sum(self.test(task) for _ in range(EVAL_ROLLOUTS)) / EVAL_ROLLOUTS
             summary_writer.add_scalar(f"eval/{task.replace(' ', '_')}", rate, epoch)
             print(f"  eval {task}: {rate:.0%}")
+            rates.append(rate)
+        # The headline. Per-task rates are 0, 0.33, 0.67 or 1 at three rollouts,
+        # so the mean across tasks is the only eval number with any resolution.
+        summary_writer.add_scalar("eval/mean", sum(rates) / len(rates), epoch)
+        print(f"  eval mean: {sum(rates) / len(rates):.0%}")
         # The weights that produced these numbers. Without this the checkpoint on
         # disk is whichever eval happened to run last, lucky or not.
         torch.save(self.model.head.state_dict(),

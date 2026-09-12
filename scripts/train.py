@@ -3,11 +3,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agent import Agent
 
-# agent = Agent(data_path="dataset/microwave", name="bc_microwave")
-agent = Agent(data_path="dataset", name="vla_network")
+# The shards live outside the repo -- a symlink locally, a real path on the
+# training server -- so the location is environment, not code.
+data_path = os.environ.get("DATASET_PATH", "dataset")
 
-# 7 it/s at batch 64 on the 5090, plus 1.1 min per eval block, so 30K is about
-# 1.75 hours. The conv stack first swept all three tasks at 27K.
-epochs = 30001
+agent = Agent(data_path=data_path, name="vla_network")
 
-agent.train(epochs=epochs, batch_size=64)
+agent.train(epochs=100001, batch_size=64)
