@@ -5,3 +5,6 @@ dataset
 #dataset*
 runs
 nohup.out
+lesson/public
+lesson/resources
+lesson/.hugo_build.lock

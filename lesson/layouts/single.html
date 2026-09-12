@@ -1,0 +1,11 @@
+{{ define "main" }}
+<article class="prose">
+  <header class="chapter-head">
+    {{ with .Params.part }}<p class="eyebrow">{{ . }}</p>{{ end }}
+    <p class="chapter-num">Chapter {{ .Params.chapter }}</p>
+    <h1>{{ .Title }}</h1>
+    {{ with .Params.standfirst }}<p class="standfirst">{{ . }}</p>{{ end }}
+  </header>
+  {{ .Content }}
+</article>
+{{ end }}

@@ -1,0 +1,29 @@
+{{ define "main" }}
+<article class="prose home">
+  <header class="chapter-head">
+    <p class="eyebrow">Franka Kitchen · build log</p>
+    <h1>{{ .Site.Title }}</h1>
+    <p class="standfirst">{{ .Site.Params.description }}</p>
+  </header>
+  {{ .Content }}
+  <h2>Contents</h2>
+  <ol class="contents">
+    {{ $seen := "" }}
+    {{ range (where .Site.RegularPages "Section" "chapters").ByWeight }}
+      {{ if and .Params.part (ne .Params.part $seen) }}
+        <li class="part">{{ .Params.part }}</li>
+        {{ $seen = .Params.part }}
+      {{ end }}
+      <li>
+        <a href="{{ .RelPermalink }}">
+          <span class="num">{{ .Params.chapter }}</span>
+          <span class="label">
+            <strong>{{ .Title }}</strong>
+            {{ with .Params.standfirst }}<em>{{ . }}</em>{{ end }}
+          </span>
+        </a>
+      </li>
+    {{ end }}
+  </ol>
+</article>
+{{ end }}

@@ -1,0 +1,26 @@
+{{ $pages := (where .Site.RegularPages "Section" "chapters").ByWeight }}
+<nav class="sidebar" aria-label="Chapters">
+  <a class="brand" href="{{ "" | relURL }}">
+    <span class="brand-title">{{ .Site.Title }}</span>
+    <span class="brand-sub">Franka Kitchen · build log</span>
+  </a>
+  <ol class="toc">
+    {{ $seen := "" }}
+    {{ range $pages }}
+      {{ if and .Params.part (ne .Params.part $seen) }}
+        <li class="part">{{ .Params.part }}</li>
+        {{ $seen = .Params.part }}
+      {{ end }}
+      <li>
+        <a href="{{ .RelPermalink }}"{{ if eq $.RelPermalink .RelPermalink }} class="here" aria-current="page"{{ end }}>
+          <span class="num">{{ .Params.chapter }}</span>
+          <span class="label">{{ .Title }}</span>
+        </a>
+      </li>
+    {{ end }}
+  </ol>
+  <div class="rail-foot">
+    <a href="{{ .Site.Params.repo }}">Source repository</a>
+  </div>
+</nav>
+<label for="nav-toggle" class="scrim" aria-hidden="true"></label>
