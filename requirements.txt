@@ -1,0 +1,35 @@
+# These three determine compatibility with each other and with the Python
+# version -- gymnasium-robotics constrains mujoco tightly. Verified working
+# together on Python 3.12. Everything below floats.
+mujoco==3.11.0
+gymnasium==1.3.0
+gymnasium-robotics==1.4.2
+
+matplotlib
+tensorboard
+termcolor
+h5py
+torch
+torchvision
+torchaudio
+pygame
+pyyaml
+num2words
+
+# No flash-attn. Its setup.py imports torch, and pip builds it in an isolated
+# environment that deliberately has none of this file's packages, so it dies
+# with "No module named 'torch'" no matter what is installed. The fix would be
+# --no-build-isolation, which does not survive `pip install -r` on Beekeeper.
+# Nothing here needs it: attn_implementation="sdpa" is torch-native and fine
+# for models this size.
+
+# Not imported anywhere in this project yet.
+pybullet
+robosuite
+
+# SmolVLM2. The blog's git branch was needed in early 2025, before SmolVLM2
+# landed in a release; it is in stable now (verified on 5.15.0, which resolves
+# SmolVLM2-500M/2.2B and SmolLM2 configs). Pinning the branch also downgraded
+# transformers to 4.50.0.dev0, whose .dev version fails >= pins elsewhere.
+transformers
+accelerate
