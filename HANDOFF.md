@@ -374,3 +374,61 @@ never touched either, per the standing constraint.
 architecture changes, no demo re-collection, no touching the BC baseline. All
 changes were HANDOFF.md log entries, committed and pushed to `main` after
 every check.
+
+## Morning: the hinge_cabinet oscillation, and run 10 (unfreeze A/B)
+
+Robert asked two things: (1) dig into the hinge_cabinet 100%→0% swing flagged
+overnight, (2) try the next lever (unfreeze) rather than wait for a trigger
+that already didn't fire. Both below.
+
+**1. The oscillation is mostly `EVAL_ROLLOUTS=3` doing what small samples do.**
+Full-run `analyze_run(9)` shows `eval/hinge_cabinet` as `trend: unstable`,
+`best_value: 1.0` at step 40000, `final_value: 0`, `anomaly_count: 0` — i.e.
+nothing in the raw curve reads as a spike or crash, just noise. The back half
+of the run (raw log, 60000→100000, 17 checkpoints) reads:
+`0,0,33,0,67,0,0,0,0,0,33,0,0,67,0,67,0` (%) — mostly 0 with scattered 1-of-3
+and 2-of-3 hits, never another 100. At n=3, a *true* success rate of ~30-40%
+already produces exactly this pattern: P(0/3)≈22-35%, P(1/3)≈36-44%, P(2/3)
+only ≈24-31%, and three independent 3/3s in a row (the 40000/42500/45000
+streak) at p≈0.4 is ~6% per triplet — rare but not remarkable over a
+40-checkpoint run, especially since adjacent checkpoints are correlated
+(weights barely move in 2500 epochs), which makes streaks *more* likely than
+the independent-trials math suggests.
+
+So: no monotonic collapse, no separate bug to chase. The real finding is that
+**a single 3-rollout eval is not a strong enough signal to pick a checkpoint**
+— which HANDOFF already flagged as a "final-tuning problem" for EVAL_ROLLOUTS.
+It now is one. Recommendation for whoever resolves the open "40K vs final
+checkpoint" question: re-evaluate the top few candidates (40000, 42500, 45000,
+70000, 97500 — the highest eval/mean checkpoints) with more rollouts (10-20)
+offline before choosing, rather than trusting any single in-run number,
+40K's included.
+
+**2. Run 10 started: unfreeze the last 2 text-decoder layers, 20K-epoch A/B.**
+Commit `b07ce4d`. Rather than wait on the (already-missed) 27K/0% trigger,
+Robert asked to try the unfreeze lever directly and compare against run 9's
+eval/mean at matching checkpoints. Implementation:
+- `model.py`: `UNFREEZE_LAST_N_LAYERS` (env var, default 0 = run 9's frozen
+  behaviour) unfreezes the last N text layers, matched by parsing parameter
+  names rather than a hardcoded attribute path. Raises immediately at
+  construction if the naming pattern doesn't match anything, since this
+  couldn't be smoke-tested locally (no GPU/torch on this machine).
+- `agent.py`: unfrozen VLM params get a separate Adam param group at
+  `BACKBONE_LR` (default lr/10 = 1e-4) rather than the head's 1e-3, since a
+  head-sized LR on pretrained weights would wreck them fast. Checkpoints
+  (rolling + per-epoch eval snapshots) now save head+backbone together via
+  `trainable_state_dict()`, falling back to the old bare-head format when
+  nothing is unfrozen — old checkpoints and `scripts/test.py` still load fine.
+- `scripts/train.py`: run 10 sets `UNFREEZE_LAST_N_LAYERS=2`,
+  `BACKBONE_LR=1e-4`, `VLA_EPOCHS=20001` (not 100K — run 9's first signal was
+  by 12500 and its peak by 40000, so 20K is enough to compare eval/mean at
+  matching checkpoints without paying for a full run). **Revert these three
+  once the A/B is read** — they're marked as a temporary experiment in the
+  code comment.
+
+Verified at epoch 200 (log tail): GPU pin correct (`RTX 3090`, matches the
+banner), `model: unfroze last 2 text layers (19,664,640 params)` and
+`agent: training 19,664,640 backbone params at lr=0.0001` both printed as
+expected, loss dropped 0.489→0.135→0.145 in the first 200 steps — no NaN, no
+crash. Will check back against run 9's eval/mean at 2500, 5000, ... as run 10
+reaches each checkpoint.
