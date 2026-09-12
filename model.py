@@ -1,5 +1,6 @@
 """Frozen SmolVLM2 with an action head that emits joint velocity."""
 import os
+import re
 
 import numpy as np
 import torch
@@ -11,6 +12,43 @@ from tasks import TASK_DESCRIPTIONS
 VLM = "HuggingFaceTB/SmolVLM2-500M-Video-Instruct"
 VLM_IMAGE_SIZE = 512   # vision_config.image_size
 HIDDEN = 960           # text_config.hidden_size
+
+# Experiment lever (HANDOFF.md "Unfreeze the VLM (LoRA or last-N layers)"):
+# unfreeze the last N decoder layers of the text tower. 0 = fully frozen,
+# unchanged from run 9's behaviour.
+UNFREEZE_LAST_N_LAYERS = int(os.environ.get("UNFREEZE_LAST_N_LAYERS", "0"))
+
+# Matched against parameter names rather than hardcoding an attribute path
+# (self.vlm.text_model.layers[...]) because that path is specific to the
+# current Idefics3/SmolVLM class and would silently no-op if HF renames it.
+_TEXT_LAYER_RE = re.compile(r"(?:text_model|language_model)\.layers\.(\d+)\.")
+
+
+def _unfreeze_last_text_layers(vlm, n):
+    """Set requires_grad on the last n text-decoder layers' parameters.
+
+    Fails loudly rather than silently training nothing if the naming pattern
+    doesn't match -- this can't be exercised locally (no GPU/torch on this
+    machine), so a wrong guess must surface at epoch 0, not after hours.
+    """
+    if n <= 0:
+        return
+    indices = {int(m.group(1)) for name, _ in vlm.named_parameters()
+               if (m := _TEXT_LAYER_RE.search(name))}
+    if not indices:
+        raise RuntimeError(
+            "UNFREEZE_LAST_N_LAYERS is set but no 'text_model.layers.N.' or "
+            "'language_model.layers.N.' parameters were found on the VLM -- "
+            "backbone naming has changed, update _TEXT_LAYER_RE.")
+    if n > len(indices):
+        raise RuntimeError(
+            f"UNFREEZE_LAST_N_LAYERS={n} but the text tower only has "
+            f"{len(indices)} layers.")
+    keep = set(sorted(indices)[-n:])
+    for name, p in vlm.named_parameters():
+        m = _TEXT_LAYER_RE.search(name)
+        if m and int(m.group(1)) in keep:
+            p.requires_grad_(True)
 
 
 class ActionHead(nn.Module):
@@ -42,6 +80,11 @@ class Model(nn.Module):
         self.vlm = AutoModelForImageTextToText.from_pretrained(
             VLM, dtype=torch.bfloat16, attn_implementation="sdpa").model
         self.vlm.requires_grad_(False)
+        _unfreeze_last_text_layers(self.vlm, UNFREEZE_LAST_N_LAYERS)
+        n_unfrozen = sum(p.numel() for p in self.vlm.parameters() if p.requires_grad)
+        if n_unfrozen:
+            print(f"model: unfroze last {UNFREEZE_LAST_N_LAYERS} text layers "
+                  f"({n_unfrozen:,} params)")
 
         self.head = ActionHead(HIDDEN, num_actions)
 
@@ -120,8 +163,29 @@ class Model(nn.Module):
     def device(self):
         return next(self.head.parameters()).device
 
+    def trainable_vlm_parameters(self):
+        return [p for p in self.vlm.parameters() if p.requires_grad]
+
+    def trainable_state_dict(self):
+        """Head, plus any unfrozen VLM layers -- the latter is empty and the
+        format collapses back to the old head-only checkpoint whenever
+        UNFREEZE_LAST_N_LAYERS is 0."""
+        state = {"head": self.head.state_dict()}
+        vlm_trainable = {n: p.detach().cpu()
+                         for n, p in self.vlm.named_parameters() if p.requires_grad}
+        if vlm_trainable:
+            state["vlm"] = vlm_trainable
+        return state
+
     def save_checkpoint(self):
-        torch.save(self.head.state_dict(), self.checkpoint_file)
+        torch.save(self.trainable_state_dict(), self.checkpoint_file)
 
     def load_checkpoint(self):
-        self.head.load_state_dict(torch.load(self.checkpoint_file))
+        state = torch.load(self.checkpoint_file, map_location=self.device)
+        if "head" in state:
+            self.head.load_state_dict(state["head"])
+            if "vlm" in state:
+                self.vlm.load_state_dict(state["vlm"], strict=False)
+        else:
+            # Pre-unfreeze checkpoint: a bare head state_dict.
+            self.head.load_state_dict(state)

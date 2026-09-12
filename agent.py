@@ -62,8 +62,17 @@ class Agent:
 
         self.model = Model(num_actions=num_actions, name=name).to(self.device)
 
-        # Head only; the VLM has requires_grad_(False).
-        self.optimizer = Adam(self.model.head.parameters(), learning_rate)
+        # Head always trains at learning_rate. Any unfrozen VLM layers
+        # (model.py's UNFREEZE_LAST_N_LAYERS) train slower in their own group --
+        # they're pretrained, so a head-sized LR would wreck them fast.
+        backbone_lr = float(os.environ.get("BACKBONE_LR", learning_rate * 0.1))
+        param_groups = [{"params": self.model.head.parameters(), "lr": learning_rate}]
+        vlm_params = self.model.trainable_vlm_parameters()
+        if vlm_params:
+            param_groups.append({"params": vlm_params, "lr": backbone_lr})
+            print(f"agent: training {sum(p.numel() for p in vlm_params):,} "
+                  f"backbone params at lr={backbone_lr}")
+        self.optimizer = Adam(param_groups)
 
     def _make_env(self, task, render_mode):
         env = gym.make("FrankaKitchen-v1", max_episode_steps=self.max_episode_steps,
@@ -120,7 +129,7 @@ class Agent:
         summary_writer.add_scalar("eval/mean", sum(rates) / len(rates), epoch)
         print(f"  eval mean: {sum(rates) / len(rates):.0%}")
         # Otherwise the checkpoint on disk is whichever eval ran last.
-        torch.save(self.model.head.state_dict(),
+        torch.save(self.model.trainable_state_dict(),
                    f"{self.model.checkpoint_file}.e{epoch}")
 
     def test(self, task, render_mode="rgb_array", delay=0):
