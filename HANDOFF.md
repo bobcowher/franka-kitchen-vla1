@@ -186,3 +186,9 @@ the local symlink says *franka*. 582 shards, 56,005 steps, 896px archive.
 ## Log
 
 **22:00 — handoff written.** Run 9 at ~1K epochs, loss 0.099, no eval yet.
+
+**22:08 — first check-in via Beekeeper MCP.** Run 9 at epoch 2500/100K (~18 min
+elapsed). GPU pin confirmed working: launch banner shows GPU 1 = the 3090, matching
+`e9a8b10`. `train/loss` oscillating 0.07–0.11, no trend to act on. First eval:
+microwave 0%, hinge cabinet 0% — expected this early, well before the ~15K
+no-judgment threshold. No action taken.
