@@ -446,3 +446,72 @@ where run 9 first built its recurring non-zero pattern.
 
 Still running, still on GPU 1 (RTX 3090), still un-touched: `checkpoints/bc_network`,
 architecture, demos.
+
+## Offline eval, 2026-09-12 evening: the in-run eval was hiding the model
+
+Robert asked whether we're ready for a lesson guide or need changes first.
+Answer: the architecture is fine, the *measurement* was the problem. Built
+`scripts/evaluate.py` (n=50 rollouts, Wilson intervals, same `agent.test()`
+code path as the in-run eval) and re-read run 9's candidate checkpoints.
+
+**1. Ranking run 9's checkpoints, hinge_cabinet + top_burner, n=100 each.**
+
+```
+checkpoint   in-run(n=9)   offline(n=100)   95% CI         hinge   burner
+e40000          56%           61.0%      [51.2, 70.0]       68%      54%
+e45000          44%           60.0%      [50.2, 69.1]       86%      34%
+e42500          33%           52.0%      [42.3, 61.5]       56%      48%
+e97500          44%           47.0%      [37.5, 56.7]       26%      68%
+e70000          44%           35.0%      [26.4, 44.7]       38%      32%
+e27500          22%           32.0%      [23.7, 41.7]       64%       0%
+e100000          0%            0.0%      [ 0.0,  3.7]        0%       0%
+```
+
+- **The final checkpoint is genuinely dead**, not a noisy zero: 0/100, CI
+  capped at 3.7%, while `train/loss` sat in its best-ever region (0.04-0.09).
+  The default artifact of an 11.5h run was a brick and the loss curve said
+  nothing. Keep the best eval snapshot, never the final weights.
+- **In-run numbers mis-ranked the field.** e45000 and e70000 both read 44%
+  overnight; they are 60% and 35%, non-overlapping intervals. e40000's 56%
+  was right by luck.
+- **Checkpoints specialise and trade tasks off.** e45000 is hinge-heavy
+  (86/34), e97500 is burner-heavy (26/68), e40000 is balanced (68/54). The
+  mean stays flat while the policy drifts sideways -- task interference in a
+  21,129-param head on a frozen prefix. This is a better argument for
+  unfreezing than the eval/mean curve ever was.
+
+**2. Coverage of e40000 across tasks that had never been rolled out.**
+`EVAL_TASKS` only ever covered 3 of the 7 trained tasks. The other four,
+measured for the first time at n=50:
+
+```
+slide cabinet   48/50   96.0%   [86.5, 98.9]    <- never measured before
+hinge cabinet   34/50   68.0%   [54.2, 79.2]
+top burner      27/50   54.0%   [40.4, 67.0]
+bottom burner    4/50    8.0%   [ 3.2, 18.8]    <- never measured before
+kettle           0/50    0.0%   [ 0.0,  7.1]    <- never measured before
+light switch     0/50    0.0%   [ 0.0,  7.1]    <- never measured before
+microwave         n/a  (~2% over ~120 in-run rollouts overnight)
+```
+
+113/300 across the six measured tasks. `slide cabinet` is near-solved and
+nobody had ever looked at it. Three tasks are flat zero, one is marginal.
+The open question is what separates them -- instruction encoding, demo
+count, or start-pose geometry -- not overall model capacity.
+
+**Milestone (a) is comfortably met**, not marginally: 96% on one task, 61%
+mean on the two hard ones. Far better than the <=56% the overnight numbers
+implied.
+
+**3. Run 10 (unfreeze last 2 text layers) completed**, 20K epochs in 2h26m.
+eval/mean by checkpoint: 11, 0, 0, 11, 0, 0, 0, 0. Run 9 over the same range:
+0, 0, 0, 0, 11, 11, 0, 0. **Both are noise at n=9 and neither is readable.**
+The A/B is still unresolved and needs run 10's snapshots re-run through
+`scripts/evaluate.py` at n=50 against run 9's at matching epochs. Not started
+-- it is GPU work and the local box was needed elsewhere.
+
+**Next actions, in order.** (a) Settle the run 10 A/B offline at n=50.
+(b) Raise EVAL_ROLLOUTS or move checkpoint selection offline entirely -- n=3
+cannot rank anything. (c) Add `slide cabinet` to EVAL_TASKS and drop
+`microwave` from the in-run set; it costs the most (no early termination on
+failure) and discriminates least. (d) Diagnose the three dead tasks.

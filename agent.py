@@ -44,7 +44,9 @@ class Agent:
         env = self._make_env(EVAL_TASKS[0], render_mode='rgb_array')
         obs, _ = env.reset()
 
-        self.dataset = Dataset(max_size=max_buffer_size,
+        # Eval never samples, and the frame arena is 36 GB at this image size --
+        # which matters once several eval processes run side by side.
+        self.dataset = Dataset(max_size=1 if eval else max_buffer_size,
                                image_size=self.image_size,
                                n_actions=env.action_space.shape[0],
                                n_joints=9)

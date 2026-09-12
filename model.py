@@ -180,8 +180,8 @@ class Model(nn.Module):
     def save_checkpoint(self):
         torch.save(self.trainable_state_dict(), self.checkpoint_file)
 
-    def load_checkpoint(self):
-        state = torch.load(self.checkpoint_file, map_location=self.device)
+    def load_checkpoint(self, path=None):
+        state = torch.load(path or self.checkpoint_file, map_location=self.device)
         if "head" in state:
             self.head.load_state_dict(state["head"])
             if "vlm" in state:
