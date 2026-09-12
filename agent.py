@@ -30,15 +30,6 @@ EVAL_TASKS = ["microwave", "hinge cabinet", "top burner"]
 EVAL_ROLLOUTS = 3
 
 
-def pick_device():
-    """Most free VRAM. Not cuda:0 -- Beekeeper's GPU pinning does not reach
-    the process, and cuda:0 on lab is the 3060 next to an idle 3090."""
-    if not torch.cuda.is_available():
-        return 'cpu'
-    free = [torch.cuda.mem_get_info(i)[0]
-            for i in range(torch.cuda.device_count())]
-    return f'cuda:{max(range(len(free)), key=free.__getitem__)}'
-
 class Agent:
 
     def __init__(self, eval=False, data_path="dataset", name='vla_network'):
@@ -65,11 +56,9 @@ class Agent:
 
         env.close()
 
-        self.device = pick_device()
+        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         if self.device != 'cpu':
-            index = int(self.device.split(':')[1])
-            print(f"device {self.device}: {torch.cuda.get_device_name(index)}, "
-                  f"{torch.cuda.mem_get_info(index)[0] / 1e9:.1f} GB free")
+            print(f"device: {torch.cuda.get_device_name(0)}")
 
         self.model = Model(num_actions=num_actions, name=name).to(self.device)
 
