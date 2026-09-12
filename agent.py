@@ -23,10 +23,7 @@ from dataset import Dataset
 from model import Model
 from tasks import TASKS, TASK_DESCRIPTIONS, task_index
 
-# The gripper dims (7 and 8, always identical) carry ~8x the variance of the
-# average arm joint, so an unweighted mean over all 9 hands them 70% of the loss.
-# 0.125 puts the one gripper dof and the seven arm joints on equal footing.
-# Measured on all 56,005 steps: dims 7 and 8 are +/-1 in 100% of them.
+# Gripper dims are +/-1 in every step and carry ~8x an arm joint's variance.
 GRIPPER_WEIGHT = 0.125
 
 EVAL_TASKS = ["microwave", "hinge cabinet", "top burner"]
@@ -34,18 +31,8 @@ EVAL_ROLLOUTS = 3
 
 
 def pick_device():
-    """The CUDA device with the most free memory, or the CPU.
-
-    Not 'cuda:0'. Beekeeper announces which GPU it selected and says it injects
-    CUDA_VISIBLE_DEVICES, but on lab the process landed on physical GPU 0 twice
-    -- once while the banner claimed GPU 1, and again with CUDA_VISIBLE_DEVICES=1
-    set in the project env. Both times nvidia-smi disagreed with the log. That
-    put a 507M model on a 3060 at 99% utilisation while a 3090 sat idle.
-
-    Choosing here cannot be overridden from outside, and it degrades correctly:
-    if CUDA_VISIBLE_DEVICES is ever honoured there is exactly one visible device
-    and this picks it.
-    """
+    """Most free VRAM. Not cuda:0 -- Beekeeper's GPU pinning does not reach
+    the process, and cuda:0 on lab is the 3060 next to an idle 3090."""
     if not torch.cuda.is_available():
         return 'cpu'
     free = [torch.cuda.mem_get_info(i)[0]
@@ -56,17 +43,11 @@ class Agent:
 
     def __init__(self, eval=False, data_path="dataset", name='vla_network'):
         self.max_episode_steps = 400  # longest demo on file is 314; a policy still going at 400 has failed
-        # SmolVLM2's vision tower wants 512. 448 is the largest even reduction of
-        # the 896 archive that fits in RAM -- Dataset preallocates, so a step
-        # costs 602 KiB here against 2.30 MiB at 896.
+        # 448 is the largest even reduction of 896 that fits: Dataset
+        # preallocates, so 56,005 steps cost 36 GB here and 129 GB at 896.
         self.image_size = 448
         self.native_image_size = 896
-        # 56,005 steps on disk today. At 448 the arena is 36 GB; the old 100000
-        # would ask for 60 GB.
         max_buffer_size = 60000
-        # 1e-3, not the BC stack's 1e-4. The head reads a LayerNormed vector
-        # whose informative component is a few percent of the whole; at 1e-4 the
-        # ten-sample overfit still had loss 0.0075 after 400 steps.
         learning_rate = 0.001
 
         env = self._make_env(EVAL_TASKS[0], render_mode='rgb_array')
@@ -92,8 +73,7 @@ class Agent:
 
         self.model = Model(num_actions=num_actions, name=name).to(self.device)
 
-        # Only the head. requires_grad_(False) on the VLM means Adam would carry
-        # state for 507M parameters it can never move.
+        # Head only; the VLM has requires_grad_(False).
         self.optimizer = Adam(self.model.head.parameters(), learning_rate)
 
     def _make_env(self, task, render_mode):
@@ -104,8 +84,6 @@ class Agent:
         return ObsReshapeWrapper(env, image_size=self.image_size)
 
     def train(self, epochs, batch_size):
-        # Beekeeper injects BEEKEEPER_TENSORBOARD_DIR and serves whatever lands
-        # there; locally it is unset and this stays runs/ as before.
         runs_dir = os.environ.get("BEEKEEPER_TENSORBOARD_DIR", "runs")
         stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         summary_writer = SummaryWriter(
@@ -139,9 +117,6 @@ class Agent:
                 print(f"Epoch: {epoch} Loss: {loss.item()}")
                 self.model.save_checkpoint()
 
-            # Every 2500 rather than 1000: a rollout is ~400 VLM forwards at
-            # batch 1, so an eval block costs minutes, and on a 100K run the old
-            # cadence would spend hours of the budget evaluating.
             if(epoch and epoch % 2500 == 0):
                 self.eval(epoch, summary_writer)
 
@@ -152,12 +127,10 @@ class Agent:
             summary_writer.add_scalar(f"eval/{task.replace(' ', '_')}", rate, epoch)
             print(f"  eval {task}: {rate:.0%}")
             rates.append(rate)
-        # The headline. Per-task rates are 0, 0.33, 0.67 or 1 at three rollouts,
-        # so the mean across tasks is the only eval number with any resolution.
+        # Per-task rates are 0, 0.33, 0.67 or 1, so the mean is the signal.
         summary_writer.add_scalar("eval/mean", sum(rates) / len(rates), epoch)
         print(f"  eval mean: {sum(rates) / len(rates):.0%}")
-        # The weights that produced these numbers. Without this the checkpoint on
-        # disk is whichever eval happened to run last, lucky or not.
+        # Otherwise the checkpoint on disk is whichever eval ran last.
         torch.save(self.model.head.state_dict(),
                    f"{self.model.checkpoint_file}.e{epoch}")
 
