@@ -313,3 +313,20 @@ earlier peak," and this is exactly the kind of judgment call — is 40K's
 checkpoint better than what training converges to at 100K? — that's
 Robert's to make in the morning, not something to act on unilaterally
 tonight. No action taken.
+
+**09:19 — hourly cron check, run nearly complete.** Epoch 98900/100K (~1100
+epochs left, a few minutes at current pace) — this is essentially the last
+check of the night, right on schedule for Robert's return. Last two eval
+points came in strong: 22% at 92500 (hinge_cabinet 67%) and **44% at 97500**
+(hinge_cabinet 67%, top_burner 67% together again) — ending on an upswing,
+not the quiet 82.5K–90K stretch. Best-ever point is still 56% at epoch
+40000. `train/loss` finished around 0.04–0.09, still its best-ever region
+throughout. Summary for the morning: `eval/mean` never sustained a plateau
+at its peak — it oscillated 0–56% for the entire second half of the run,
+with `hinge_cabinet` the most reliable performer, `top_burner` intermittent,
+and `microwave` only ever non-zero twice (47500, 80000). No unfreeze was
+ever triggered because eval/mean was already non-zero well before the 27K
+checkpoint. Whether the 40K checkpoint should be preferred over the final
+weights is a real open question for Robert to decide — not something to
+resolve unilaterally. No action taken; next check (if the loop continues)
+will see the run in a finished state.
