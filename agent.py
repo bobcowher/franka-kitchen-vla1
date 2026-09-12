@@ -32,6 +32,26 @@ GRIPPER_WEIGHT = 0.125
 EVAL_TASKS = ["microwave", "hinge cabinet", "top burner"]
 EVAL_ROLLOUTS = 3
 
+
+def pick_device():
+    """The CUDA device with the most free memory, or the CPU.
+
+    Not 'cuda:0'. Beekeeper announces which GPU it selected and says it injects
+    CUDA_VISIBLE_DEVICES, but on lab the process landed on physical GPU 0 twice
+    -- once while the banner claimed GPU 1, and again with CUDA_VISIBLE_DEVICES=1
+    set in the project env. Both times nvidia-smi disagreed with the log. That
+    put a 507M model on a 3060 at 99% utilisation while a 3090 sat idle.
+
+    Choosing here cannot be overridden from outside, and it degrades correctly:
+    if CUDA_VISIBLE_DEVICES is ever honoured there is exactly one visible device
+    and this picks it.
+    """
+    if not torch.cuda.is_available():
+        return 'cpu'
+    free = [torch.cuda.mem_get_info(i)[0]
+            for i in range(torch.cuda.device_count())]
+    return f'cuda:{max(range(len(free)), key=free.__getitem__)}'
+
 class Agent:
 
     def __init__(self, eval=False, data_path="dataset", name='vla_network'):
@@ -64,7 +84,11 @@ class Agent:
 
         env.close()
 
-        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        self.device = pick_device()
+        if self.device != 'cpu':
+            index = int(self.device.split(':')[1])
+            print(f"device {self.device}: {torch.cuda.get_device_name(index)}, "
+                  f"{torch.cuda.mem_get_info(index)[0] / 1e9:.1f} GB free")
 
         self.model = Model(num_actions=num_actions, name=name).to(self.device)
 
