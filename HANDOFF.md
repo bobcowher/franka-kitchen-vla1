@@ -290,3 +290,11 @@ and `top_burner` both hit 67% at the same checkpoint → back to 0% at 72500.
 Nothing here changes the picture already logged at 04:19/05:19 — noisy,
 non-zero, no sustained plateau, training loss healthy throughout. No trigger
 crossed. No action taken.
+
+**07:19 — hourly cron check.** Epoch 81700/100K. Continued oscillation: 11%
+(75000, top_burner) → 0% (77500) → 11% (80000, `microwave`'s second-ever
+success, its first since the 47500 blip). No new pattern — same story as the
+last three checks. At the current pace (~2.4 epochs/sec including eval
+overhead) the run has roughly ~18,300 epochs left, projecting completion
+around **09:2X** — right around when Robert said he'd check back in. No
+trigger crossed. No action taken.
