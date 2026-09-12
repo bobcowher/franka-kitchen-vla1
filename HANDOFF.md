@@ -201,3 +201,10 @@ the local network, so a cloud-run agent could not reach it anyway.
 **22:15 — second check.** Epoch 2900/100K. `eval/mean` = 0% (microwave,
 hinge_cabinet, top_burner all 0% at the one eval point so far). Still well
 before the ~15K no-judgment threshold. No action taken.
+
+**23:19 — hourly cron check.** Epoch 12500/100K. `eval/mean` = 0% at every
+eval point so far (2500, 5000, 7500, 10000, 12500) — five straight zeros, but
+still inside the no-judgment window; next eval at 15000 is the first one
+worth reading into per the 27K/~01:00 trigger. `train/loss` still oscillating
+0.06–0.11 with no clear trend, as expected — not a decision signal. No action
+taken.
