@@ -282,3 +282,11 @@ volatility is on the eval/rollout side, consistent with 3-rollout resolution
 plus whatever is making `hinge_cabinet` inconsistent rather than any training
 instability. No trigger crossed, nothing actionable changed since the last
 check. No action taken.
+
+**06:19 — hourly cron check.** Epoch 73000/100K. Same oscillation continues:
+11% (65000) → 22% (67500) → **44% at 70000**, the first time `hinge_cabinet`
+and `top_burner` both hit 67% at the same checkpoint → back to 0% at 72500.
+`microwave` still hasn't broken 0% again since its one blip at 47500.
+Nothing here changes the picture already logged at 04:19/05:19 — noisy,
+non-zero, no sustained plateau, training loss healthy throughout. No trigger
+crossed. No action taken.
