@@ -254,3 +254,19 @@ the one task that has never once succeeded; worth Robert's attention in the
 morning (possibly a harder task, possibly something task-specific), but not
 an authorized action tonight. No unfreeze needed — the signal keeps getting
 stronger, not weaker. No action taken.
+
+**04:19 — hourly cron check, peak reversed.** Epoch 55700/100K. The 40–45K
+peak did not hold: `eval/mean` by step from 47500 on: 11%, 11%, 0%, 0% — four
+checkpoints declining back toward zero right after hinge_cabinet's three
+100%s. hinge_cabinet itself went 100/100/100 → 0/0/0/0, a sharper reversal
+than 3-rollout noise alone comfortably explains, though not impossible at
+this sample size. One genuine positive: `microwave` broke its 0% streak for
+the first time ever at 47500 (33%), though it too fell back to 0% the next
+three checkpoints. `train/loss` keeps declining smoothly (now 0.057, still
+its best-ever region) — so this doesn't look like a training blowup, more
+like an eval-side pattern (possibly overfitting to hinge_cabinet's specific
+demos, or just the small-sample variance the project has already flagged
+elsewhere). Not touching anything: no authorized trigger fits a "peaked then
+declined" pattern, and this needs Robert's judgment on whether it's noise or
+a real regression, not a unilateral architecture change. No action taken —
+flagging clearly for the morning.
