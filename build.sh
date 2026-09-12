@@ -25,4 +25,4 @@ SMOLVLM_SNAPSHOTS=~/.cache/huggingface/hub/models--HuggingFaceTB--SmolVLM2-500M-
 # ./scripts/test.py, collect demos with ./scripts/human_control.py.
 # python -u ./scripts/human_control.py
 # python -u scripts/train.py
-python -u smolvlm_test.py
+python -u scripts/train.py

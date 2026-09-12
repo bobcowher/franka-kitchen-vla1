@@ -1,7 +1,7 @@
 __pycache__
 checkpoints
 .claude/
-dataset/
+dataset
 #dataset*
 runs
 nohup.out

@@ -127,14 +127,15 @@ class ObsReshapeWrapper(ObservationWrapper):
     so anything that wants full-resolution frames -- recording, debugging --
     goes below it or leaves it off.
 
-    Frames also come out CHW rather than the HWC everything upstream uses,
-    because that is what Conv2d takes and what Dataset.sample_batch hands back.
-    Both are free views over HWC memory, so nothing is copied. Once a batch
-    dimension is added -- obs[None], or a DataLoader collate -- torch reports
-    the result channels_last-contiguous, which is the faster layout on GPU;
-    channels_last is a 4D format, so an unbatched frame will say False. Storage
-    stays HWC: it compresses better and it is what RLDS and every image library
-    use.
+    Frames come out HWC, the order storage and Dataset.sample_batch both use.
+    They were CHW while the policy was a conv net, because that is what Conv2d
+    takes; the VLA permutes on the GPU in Model.preprocess instead, so a
+    transpose here would only be undone a moment later. What matters is that
+    the two sides of the train/eval line agree. They disagreed exactly once,
+    when sample_batch dropped its transpose and this did not, and the rollout
+    died with "expected input to have 3 channels, but got 448" -- which is the
+    lucky version. Had the numbers happened to line up it would have trained
+    on transposed pixels and simply been worse.
 
     Only camera_scene is touched; joint_pos and joint_vel pass through. Named
     for reshaping generally because a crop or a normalisation would belong here
@@ -151,16 +152,16 @@ class ObsReshapeWrapper(ObservationWrapper):
 
         self.observation_space = spaces.Dict({
             **env.observation_space.spaces,
-            "camera_scene": spaces.Box(0, 255, (3, image_size, image_size), np.uint8),
+            "camera_scene": spaces.Box(0, 255, (image_size, image_size, 3), np.uint8),
         })
 
     def observation(self, observation):
-        reduced = frames.resize(observation["camera_scene"], self.image_size)
         return {
             **observation,
-            # CHW, matching Dataset.sample_batch so a policy sees one axis order
-            # either side of the train/eval line. A view, not a copy.
-            "camera_scene": reduced.transpose(2, 0, 1),
+            # HWC, matching Dataset.sample_batch so a policy sees one axis order
+            # either side of the train/eval line.
+            "camera_scene": frames.resize(observation["camera_scene"],
+                                          self.image_size),
         }
 
 

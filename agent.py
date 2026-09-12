@@ -11,10 +11,10 @@ import torch
 import torch.nn.functional as F
 import time
 import datetime
-import gymnasium as gym 
+import gymnasium as gym
 import gymnasium_robotics  # registers FrankaKitchen-v1; no longer automatic in gymnasium 1.x
 from torch.optim.adam import Adam
-from gym_robotics_custom import HeldSetpointWrapper, VLAObservationWrapper, ObsReshapeWrapper 
+from gym_robotics_custom import HeldSetpointWrapper, VLAObservationWrapper, ObsReshapeWrapper
 
 
 from torch.utils.tensorboard import SummaryWriter
@@ -26,6 +26,7 @@ from tasks import TASKS, TASK_DESCRIPTIONS, task_index
 # The gripper dims (7 and 8, always identical) carry ~8x the variance of the
 # average arm joint, so an unweighted mean over all 9 hands them 70% of the loss.
 # 0.125 puts the one gripper dof and the seven arm joints on equal footing.
+# Measured on all 56,005 steps: dims 7 and 8 are +/-1 in 100% of them.
 GRIPPER_WEIGHT = 0.125
 
 EVAL_TASKS = ["microwave", "hinge cabinet", "top burner"]
@@ -33,12 +34,20 @@ EVAL_ROLLOUTS = 3
 
 class Agent:
 
-    def __init__(self, eval=False, data_path="dataset", name='bc_network'):
+    def __init__(self, eval=False, data_path="dataset", name='vla_network'):
         self.max_episode_steps = 400  # longest demo on file is 314; a policy still going at 400 has failed
-        self.image_size = 224
+        # SmolVLM2's vision tower wants 512. 448 is the largest even reduction of
+        # the 896 archive that fits in RAM -- Dataset preallocates, so a step
+        # costs 602 KiB here against 2.30 MiB at 896.
+        self.image_size = 448
         self.native_image_size = 896
-        max_buffer_size = 100000
-        learning_rate = 0.0001
+        # 56,005 steps on disk today. At 448 the arena is 36 GB; the old 100000
+        # would ask for 60 GB.
+        max_buffer_size = 60000
+        # 1e-3, not the BC stack's 1e-4. The head reads a LayerNormed vector
+        # whose informative component is a few percent of the whole; at 1e-4 the
+        # ten-sample overfit still had loss 0.0075 after 400 steps.
+        learning_rate = 0.001
 
         env = self._make_env(EVAL_TASKS[0], render_mode='rgb_array')
         obs, _ = env.reset()
@@ -51,23 +60,17 @@ class Agent:
         if not eval:
             self.dataset.load_data(path=data_path)
 
-        image_input_shape = obs['camera_scene'].shape
-        joint_pos_dim     = obs['joint_pos'].shape[0]
-        num_actions       = env.action_space.shape[0]
+        num_actions = env.action_space.shape[0]
 
         env.close()
 
         self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
-        self.model = Model(image_input_shape=image_input_shape,
-                           joint_pos_dim=joint_pos_dim,
-                           num_actions=num_actions,
-                           task_dim=len(TASK_DESCRIPTIONS),
-                           hidden_dim=756,
-                           n_hidden_layers=3,
-                           name=name).to(self.device)
+        self.model = Model(num_actions=num_actions, name=name).to(self.device)
 
-        self.optimizer = Adam(self.model.parameters(), learning_rate)
+        # Only the head. requires_grad_(False) on the VLM means Adam would carry
+        # state for 507M parameters it can never move.
+        self.optimizer = Adam(self.model.head.parameters(), learning_rate)
 
     def _make_env(self, task, render_mode):
         env = gym.make("FrankaKitchen-v1", max_episode_steps=self.max_episode_steps,
@@ -76,24 +79,6 @@ class Agent:
         env = VLAObservationWrapper(env, image_size=self.native_image_size)
         return ObsReshapeWrapper(env, image_size=self.image_size)
 
-    def process_observation(self,obs):
-        images    = obs['camera_scene']
-        joint_pos = obs['joint_pos']
-        joint_vel = obs['joint_vel']
-
-        images    = torch.tensor(images, dtype=torch.float32).to(self.device) / 255
-        joint_pos = torch.tensor(joint_pos, dtype=torch.float32).to(self.device)
-        joint_vel = torch.tensor(joint_vel, dtype=torch.float32).to(self.device)
-
-        if images.dim() == 3:
-            images    = images.unsqueeze(0)
-            joint_pos = joint_pos.unsqueeze(0)
-            joint_vel = joint_vel.unsqueeze(0)
-
-        return images, joint_pos, joint_vel
-
-
-
     def train(self, epochs, batch_size):
         summary_writer_name = f'runs/{datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
         summary_writer_name = summary_writer_name + f"_bs={batch_size}"
@@ -101,15 +86,11 @@ class Agent:
 
         for epoch in range(epochs):
             states, actions, _, _, tasks = self.dataset.sample_batch(batch_size)
-           
-            images, joint_pos, joint_vel = self.process_observation(states)
 
-            actions = torch.tensor(actions).to(self.device)
+            actions = torch.tensor(actions, dtype=torch.float32).to(self.device)
             tasks   = torch.tensor(tasks).to(self.device)
 
-            pred_actions = self.model(obs=images,
-                                      joint_pos=joint_pos,
-                                      task=tasks)            
+            pred_actions = self.model(states['camera_scene'], tasks)
 
             arm_loss     = F.mse_loss(actions[:, :7], pred_actions[:, :7])
             gripper_loss = F.mse_loss(actions[:, 7:], pred_actions[:, 7:])
@@ -121,7 +102,7 @@ class Agent:
             loss.backward()
 
             self.optimizer.step()
-            
+
             if(epoch % 10 == 0):
                 summary_writer.add_scalar("train/loss", loss, epoch)
                 summary_writer.add_scalar("train/arm", arm_loss, epoch)
@@ -139,6 +120,10 @@ class Agent:
             rate = sum(self.test(task) for _ in range(EVAL_ROLLOUTS)) / EVAL_ROLLOUTS
             summary_writer.add_scalar(f"eval/{task.replace(' ', '_')}", rate, epoch)
             print(f"  eval {task}: {rate:.0%}")
+        # The weights that produced these numbers. Without this the checkpoint on
+        # disk is whichever eval happened to run last, lucky or not.
+        torch.save(self.model.head.state_dict(),
+                   f"{self.model.checkpoint_file}.e{epoch}")
 
     def test(self, task, render_mode="rgb_array", delay=0):
         env = self._make_env(task, render_mode)
@@ -150,9 +135,7 @@ class Agent:
         self.model.eval()
         with torch.no_grad():
             while not (done or trunc):
-                images, joint_pos, joint_vel = self.process_observation(obs)
-                action = self.model(obs=images, joint_pos=joint_pos,
-                                    task=task_id)
+                action = self.model(obs['camera_scene'], task_id)
                 obs, reward, done, trunc, _ = env.step(action.cpu().numpy().squeeze())
                 total_reward += reward
                 time.sleep(delay)

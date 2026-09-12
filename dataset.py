@@ -124,9 +124,9 @@ class Dataset():
         batch = np.random.choice(self.mem_ctr, batch_size)
 
         state = {
-            # NCHW to match Conv2d. Fancy indexing already made a contiguous HWC
-            # copy, so the transpose is a free view over it.
-            "camera_scene": self.camera_scene_memory[batch].transpose(0, 3, 1, 2),
+            # Left HWC. The conv stack wanted NCHW; Model.preprocess permutes on
+            # the GPU instead, so transposing here would only be undone there.
+            "camera_scene": self.camera_scene_memory[batch],
             "joint_pos": self.joint_pos_memory[batch],
             "joint_vel": self.joint_vel_memory[batch],
         }

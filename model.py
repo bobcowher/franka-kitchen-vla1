@@ -1,125 +1,167 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.distributions import Normal
+"""A VLM with an action head bolted on.
+
+The policy is SmolVLM2-500M reading one camera frame and one instruction, with
+a Linear(960 -> 9) on the end that emits joint velocity. That linear layer is
+the entire "action capability"; everything else is a pretrained VLM, frozen.
+
+Why the head reads the last token and nothing else: the text stack is causal,
+so the final prefix token has already attended to every image token and every
+instruction token. For one action per forward pass a learned query token would
+be redundant with it. Chunking is where that stops being true -- k actions need
+k query positions, because one hidden state cannot carry k distinct answers --
+and that is the point at which the inputs_embeds path below becomes necessary.
+"""
 import os
 
-# Initialize Policy weights
-def weights_init_(m):
-    if isinstance(m, nn.Linear):
-        torch.nn.init.xavier_uniform_(m.weight, gain=1)
-        torch.nn.init.constant_(m.bias, 0)
+import numpy as np
+import torch
+import torch.nn as nn
+from transformers import AutoProcessor, AutoModelForImageTextToText
+
+from tasks import TASK_DESCRIPTIONS
+
+VLM = "HuggingFaceTB/SmolVLM2-500M-Video-Instruct"
+
+# vision_config.image_size. Shards load at 448 -- an even halving of the 896
+# archive -- and this is the one resize in the project that is not integral.
+# It is an upsample, so it cannot alias and loses nothing the 448 frame had;
+# frames.py's integer rule exists to stop backends disagreeing on the way down.
+VLM_IMAGE_SIZE = 512
+
+# text_config.hidden_size.
+HIDDEN = 960
+
+# The processor's image branch is only resize -> /255 -> (x - mean) / std, with
+# mean = std = 0.5. Reproducing it on the GPU is what makes the loop affordable.
+IMAGE_MEAN = 0.5
+IMAGE_STD = 0.5
 
 
 class Model(nn.Module):
-    def __init__(self, image_input_shape, 
-                 joint_pos_dim, 
-                 task_dim,
-                 num_actions, 
-                 hidden_dim,
-                 compression_dim=None, 
-                 n_hidden_layers=1,
-                 checkpoint_dir='checkpoints', 
-                 name='bc_network'):
-        super(Model, self).__init__()
 
-        # Per-modality embedding width before fusion. Defaults to hidden_dim
-        # (the historical behavior); pass a value to tune it independently.
-        if compression_dim is None:
-            compression_dim = hidden_dim
+    def __init__(self, num_actions, checkpoint_dir='checkpoints',
+                 name='vla_network'):
+        super().__init__()
 
-        # Six stride-2 stages, halving the frame each time and doubling channels
-        # on the way down: 448 -> 224 -> 112 -> 56 -> 28 -> 14 -> 7.
+        processor = AutoProcessor.from_pretrained(VLM)
+        # 17 sub-images (a 4x4 grid plus a thumbnail) is a document-reading
+        # default. Off, one frame is 79-84 tokens instead of 1139.
+        processor.image_processor.do_image_splitting = False
+
+        # The prompt is a pure function of the task and there are seven tasks,
+        # so tokenization leaves the training loop entirely. Nothing the VLM
+        # produces is cached -- only the tokens -- so unfreezing it later
+        # invalidates none of this.
+        self._build_prompts(processor)
+
+        # .model drops the language-modelling head: 49280 x 960 of vocabulary
+        # projection that nothing downstream reads.
+        self.vlm = AutoModelForImageTextToText.from_pretrained(
+            VLM, dtype=torch.bfloat16, attn_implementation="sdpa").model
+        self.vlm.requires_grad_(False)
+
+        # The LayerNorm is not decoration. Measured on ten real frames, the last
+        # hidden state is 95% constant: ||mean|| 53.8 against ||deviation|| 2.8,
+        # with dim 232 alone carrying |mean| 34.0, sixty times the median dim.
+        # That is SmolLM2's massive-activation outliers, and a bare Linear reading
+        # them stalls -- 0.0075 after 400 steps where this reaches 0.000000.
+        # Centering and rescaling per sample is what puts the 5% that varies with
+        # the image on the same footing as the 95% that never does.
         #
-        # The previous stack was Nature-DQN's, built for 84x84. Its kernels and
-        # strides are fixed, so feeding it 448 left the receptive field at 36x36
-        # -- 18% of an 84px frame but 0.6% of this one, about the size of the
-        # gripper fingertips. No conv feature could see the arm and its target at
-        # once, and it stopped downsampling at 52x52, so the flatten that follows
-        # was Linear(173056, 756): 130.8M params, 97.6% of the whole model, doing
-        # the spatial reasoning the convs never did. Going deeper takes the
-        # receptive field to 131x131 and the grid to 7x7, which shrinks that
-        # layer ~7x and moves capacity into the part that actually looks.
-        #
-        # GroupNorm rather than BatchNorm: rollouts run this at batch size 1 with
-        # .eval(), which is where BatchNorm's running statistics bite.
-        channels = [image_input_shape[0], 32, 64, 128, 256, 256, 512]
-        stages = []
-        for i, (c_in, c_out) in enumerate(zip(channels, channels[1:])):
-            # A wider kernel on the stem only; 448px of raw pixels is more than a
-            # 3x3 can usefully summarize, and it is cheap at 3 input channels.
-            kernel = 7 if i == 0 else 3
-            stages += [nn.Conv2d(c_in, c_out, kernel_size=kernel, stride=2,
-                                 padding=kernel // 2),
-                       nn.GroupNorm(8, c_out),
-                       nn.ReLU()]
-        self.conv = nn.Sequential(*stages)
-
-        with torch.no_grad():
-            dummy = torch.zeros(1, *image_input_shape)
-            flat_size = self._conv_forward(dummy).shape[1]
-
-        # We want the total compression dim to be the joint information, for gut feeling reasons. 
-        compression_dim_small = compression_dim // 2
-
-        # Ablation: joint_vel is deliberately absent, the mirror of the
-        # no-joint-pos run. Velocity was in here to stand in for history -- with
-        # a single frame, it is the only thing saying which way the arm was
-        # already moving. This asks whether that is worth its place, given that
-        # ALOHA/ACT and pi0 both condition on joint position alone.
-        self.joint_pos_input = nn.Linear(joint_pos_dim, compression_dim_small)
-        self.task_input      = nn.Embedding(task_dim, compression_dim_small)
-
-
-        self.image_input = nn.Linear(flat_size, compression_dim)
-
-        self.compression_layer = nn.Linear(compression_dim + (compression_dim_small * 2), hidden_dim)
-
-        # n_hidden_layers hidden FC layers between fusion and output.
-        # n_hidden_layers=1 reproduces the original single `linear1`.
-        self.hidden_layers = nn.ModuleList(
-            [nn.Linear(hidden_dim, hidden_dim) for _ in range(n_hidden_layers)]
-        )
-
-        self.output = nn.Linear(hidden_dim, num_actions)
+        # No tanh. The BC stack had one, and with +/-1 gripper targets it makes
+        # zero loss unreachable -- which would blunt the only unambiguous test
+        # this design has, overfitting a handful of samples until loss vanishes.
+        # The env clips to the joint velocity bounds anyway (_ctrl_velocity_limits).
+        self.head = nn.Sequential(nn.LayerNorm(HIDDEN),
+                                  nn.Linear(HIDDEN, num_actions))
 
         self.name = name
         self.checkpoint_dir = checkpoint_dir
-        self.checkpoint_file = os.path.join(self.checkpoint_dir, name)
+        self.checkpoint_file = os.path.join(checkpoint_dir, name)
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        self.train()
 
-        self.apply(weights_init_)
+    def _build_prompts(self, processor):
+        """Tokenize the seven instructions once, padded to a common length.
 
+        The instructions differ in length (79 to 84 tokens), so a batch mixing
+        tasks has to pad. Padding goes on the right and the head gathers each
+        row's last real token: under causal attention a real token cannot see a
+        later pad, so the gathered state is identical to the unpadded one. Left
+        padding would be the trap -- it shifts every RoPE position.
+        """
+        prompts = []
+        for description in TASK_DESCRIPTIONS:
+            messages = [{"role": "user", "content": [
+                {"type": "image"},
+                {"type": "text", "text": description},
+            ]}]
+            prompts.append(processor.apply_chat_template(
+                messages, add_generation_prompt=True))
 
-    def _conv_forward(self, x):
-        return self.conv(x).flatten(1)
+        # One dummy frame per prompt: the processor needs an image to know how
+        # many image tokens to expand, and resizes whatever it is given.
+        dummy = np.zeros((VLM_IMAGE_SIZE, VLM_IMAGE_SIZE, 3), dtype=np.uint8)
+        tokens = processor(text=prompts, images=[[dummy]] * len(prompts),
+                           padding=True, return_tensors="pt")
 
-    def forward(self, obs, joint_pos, task):
-        x_image = self._conv_forward(obs)
-        x_image = F.relu(self.image_input(x_image))
+        self.register_buffer("prompt_ids", tokens["input_ids"], persistent=False)
+        self.register_buffer("prompt_mask", tokens["attention_mask"],
+                             persistent=False)
+        self.register_buffer("prompt_end", tokens["attention_mask"].sum(1) - 1,
+                             persistent=False)
 
-        x_joint_pos = F.relu(self.joint_pos_input(joint_pos))
-        x_task      = F.relu(self.task_input(task))
+    def train(self, mode=True):
+        """Keep the VLM in eval even while the head trains.
 
-        # x_task = self.task_input(task_id)
+        nn.Module.train() recurses, so without this the frozen tower's dropout
+        switches on for training and off for rollout -- a difference between the
+        two paths that nothing would report.
+        """
+        super().train(mode)
+        self.vlm.eval()
+        return self
 
-        x = torch.cat([x_image, x_joint_pos, x_task], dim=1)
+    def preprocess(self, frames):
+        """uint8 (B,H,W,3) or (H,W,3) -> pixel_values (B,1,3,512,512).
 
-        x = F.relu(self.compression_layer(x))
+        The one place a frame becomes model input, so training and rollout
+        cannot drift apart. Running this on the GPU rather than calling the
+        processor is the difference between 1.0 and 7.0 iterations/sec at batch
+        64 -- the processor's CPU image path was 85% of the step.
+        """
+        if not torch.is_tensor(frames):
+            frames = torch.from_numpy(np.ascontiguousarray(frames))
+        if frames.dim() == 3:
+            frames = frames[None]
 
-        for layer in self.hidden_layers:
-            x = F.relu(layer(x))
+        x = frames.to(self.device, non_blocking=True).permute(0, 3, 1, 2).float() / 255
+        x = nn.functional.interpolate(x, size=VLM_IMAGE_SIZE, mode="bilinear",
+                                      align_corners=False)
+        x = (x - IMAGE_MEAN) / IMAGE_STD
+        return x.to(torch.bfloat16).unsqueeze(1)
 
-        x = F.tanh(self.output(x))
-        # # x = F.tanh(self.out)
-        # x = self.output(x)
-        # # x = F.tanh(x)
-        return x
-    
+    def forward(self, frames, task):
+        task = task.reshape(-1).to(self.device)
+        pixel_values = self.preprocess(frames)
+
+        out = self.vlm(input_ids=self.prompt_ids[task],
+                       attention_mask=self.prompt_mask[task],
+                       pixel_values=pixel_values)
+
+        last = out.last_hidden_state[torch.arange(len(task), device=self.device),
+                                     self.prompt_end[task]]
+        return self.head(last.float())
+
+    @property
+    def device(self):
+        return next(self.head.parameters()).device
+
     def save_checkpoint(self):
-        torch.save(self.state_dict(), self.checkpoint_file)
+        """Only the head. The other 507M parameters are frozen and already on
+        disk in the HF cache; writing them every save costs a GB for nothing."""
+        torch.save(self.head.state_dict(), self.checkpoint_file)
 
     def load_checkpoint(self):
-        self.load_state_dict(torch.load(self.checkpoint_file))
-
+        self.head.load_state_dict(torch.load(self.checkpoint_file))
