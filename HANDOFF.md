@@ -208,3 +208,12 @@ still inside the no-judgment window; next eval at 15000 is the first one
 worth reading into per the 27K/~01:00 trigger. `train/loss` still oscillating
 0.06–0.11 with no clear trend, as expected — not a decision signal. No action
 taken.
+
+**00:19 — hourly cron check.** Epoch 21100/100K. First non-zero signal:
+`eval/mean` hit 11% at both the 12500 and 15000 checkpoints (top_burner 1/3
+rollouts each time), then reverted to 0% at 17500 and 20000. At 3 rollouts
+per task this is exactly the single-success noise floor the project already
+knows about (0/0.33/0.67/1 resolution) — not a trend, just noted for the
+morning. Still below the 27K/~01:00 decision point, so no unfreeze yet.
+`train/loss` unchanged (0.06–0.11 band). No action taken; next check should
+land on or near the 27K checkpoint.
