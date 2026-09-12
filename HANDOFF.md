@@ -192,3 +192,12 @@ elapsed). GPU pin confirmed working: launch banner shows GPU 1 = the 3090, match
 `e9a8b10`. `train/loss` oscillating 0.07–0.11, no trend to act on. First eval:
 microwave 0%, hinge cabinet 0% — expected this early, well before the ~15K
 no-judgment threshold. No action taken.
+
+Set up an hourly session-local cron (fires :07 past the hour) to repeat this
+check automatically per the Hourly loop section above. Cloud scheduling was
+considered and rejected: Beekeeper's MCP server only reaches `lab.local` on
+the local network, so a cloud-run agent could not reach it anyway.
+
+**22:15 — second check.** Epoch 2900/100K. `eval/mean` = 0% (microwave,
+hinge_cabinet, top_burner all 0% at the one eval point so far). Still well
+before the ~15K no-judgment threshold. No action taken.
