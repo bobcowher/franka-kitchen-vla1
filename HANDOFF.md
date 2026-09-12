@@ -330,3 +330,47 @@ checkpoint. Whether the 40K checkpoint should be preferred over the final
 weights is a real open question for Robert to decide — not something to
 resolve unilaterally. No action taken; next check (if the loop continues)
 will see the run in a finished state.
+
+**09:28 — run 9 completed. Loop wrapping up.** Full 100K epochs finished in
+11h37m57s, status COMPLETED. Final checkpoint (100000) happened to read 0%
+across the board — the last eval point was a quiet one, not a regression;
+the checkpoint immediately before it (97500) was 44%, one of the best of the
+night. Since there's no more training to check, this stops the hourly loop:
+deleted cron job `67b3a488`.
+
+**Milestone (a) — "any rollout success above 0%" — was met repeatedly and
+independently, not once.** Across ~40 eval points from epoch 2500 to 100000,
+`eval/mean` oscillated between 0% and 56%, never sustaining a plateau at its
+peak but recurring nonzero dozens of times, on different tasks, at different
+points in training:
+- **hinge_cabinet**: the most reliable task. Hit 100% three checkpoints in a
+  row (40000, 42500, 45000) before reverting; recovered to 67% multiple times
+  afterward (57500, 70000, 92500, 97500). Best single task result of the run.
+- **top_burner**: intermittent throughout, 33–67% at irregular checkpoints,
+  including twice alongside hinge_cabinet at the same step (70000, 97500).
+- **microwave**: the outlier. Non-zero exactly twice all night (33% at 47500
+  and 80000) out of ~40 eval points. Worth a look — possibly a harder task
+  geometrically, possibly something instruction- or demo-specific to that
+  task alone.
+- Best single eval/mean: **56% at epoch 40000**. `train/loss` was healthy and
+  monotonically improving all night (0.33 → ~0.06, best point 0.038 at
+  step 39920) — training itself never broke; all the volatility was on the
+  eval/rollout side.
+
+**The unfreeze trigger was never pulled.** `eval/mean` was already
+recurring non-zero well before the 27K/~01:00 checkpoint, so the "unfreeze
+if still 0%" premise never held. The frozen VLM + tiny ActionHead architecture
+was left completely untouched all night, as authorised.
+
+**Open question for Robert, not resolved unilaterally:** is the epoch 40000
+checkpoint (56% eval/mean, hinge_cabinet's cleanest run) actually the better
+model to keep, versus the final epoch 100000 weights (which happened to
+land on a 0% eval)? Beekeeper's `run_history`/artifact storage should have
+both checkpoints if intermediate checkpointing was on — worth checking. No
+checkpoints were touched or deleted tonight; `checkpoints/bc_network` was
+never touched either, per the standing constraint.
+
+**Nothing else pending.** No unauthorized changes were made all night: no
+architecture changes, no demo re-collection, no touching the BC baseline. All
+changes were HANDOFF.md log entries, committed and pushed to `main` after
+every check.
