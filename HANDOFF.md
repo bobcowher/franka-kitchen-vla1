@@ -432,3 +432,17 @@ banner), `model: unfroze last 2 text layers (19,664,640 params)` and
 expected, loss dropped 0.489→0.135→0.145 in the first 200 steps — no NaN, no
 crash. Will check back against run 9's eval/mean at 2500, 5000, ... as run 10
 reaches each checkpoint.
+
+**Run 10 progress check, epoch ~10800 (1h19m elapsed).** `eval/mean` so far:
+2500→11%, 5000→0%, 7500→0%, 10000→11% (top_burner and hinge_cabinet each hit
+once, 1-of-3 rollouts). `train/loss` healthy, no anomalies beyond normal
+early-training spikes. For comparison, **run 9 (frozen VLM) was still 0%
+across all four of these same checkpoints** — its first non-zero reading was
+at 12500. So run 10 has a mild lead, but at n=3 rollouts each of these is a
+single lucky episode, not yet a real signal (see the oscillation analysis
+above — don't read anything into this until more checkpoints land, same "not
+before ~15K" caution as run 9 got). Next natural check: epoch 15000-20000,
+where run 9 first built its recurring non-zero pattern.
+
+Still running, still on GPU 1 (RTX 3090), still un-touched: `checkpoints/bc_network`,
+architecture, demos.
