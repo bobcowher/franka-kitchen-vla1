@@ -242,3 +242,15 @@ every single eval point so far; worth watching whether it ever breaks 0%.
 Nothing here crosses an action threshold: the run is past the 27K decision
 point, the trigger already didn't fire, and this check reinforces that call
 rather than reversing it. No action taken.
+
+**03:19 — hourly cron check, clear jump.** Epoch 47400/100K. `eval/mean`
+jumped to its best run yet: **56% at epoch 40000** (hinge_cabinet 100%,
+top_burner 67%), then 33% at 42500 and 44% at 45000 — both with hinge_cabinet
+still at **100%**. hinge_cabinet has now hit 100% three checkpoints in a row
+(40000, 42500, 45000), which reads as genuinely solved rather than rollout
+luck. top_burner keeps swinging (67% → 0% → 33%) — still noisy but nonzero.
+`microwave` remains at flat 0% across all 19 eval points recorded so far —
+the one task that has never once succeeded; worth Robert's attention in the
+morning (possibly a harder task, possibly something task-specific), but not
+an authorized action tonight. No unfreeze needed — the signal keeps getting
+stronger, not weaker. No action taken.
