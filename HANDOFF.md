@@ -217,3 +217,17 @@ knows about (0/0.33/0.67/1 resolution) — not a trend, just noted for the
 morning. Still below the 27K/~01:00 decision point, so no unfreeze yet.
 `train/loss` unchanged (0.06–0.11 band). No action taken; next check should
 land on or near the 27K checkpoint.
+
+**01:19 — hourly cron check, the 27K decision point.** Epoch 29900/100K.
+**The unfreeze trigger did not fire** — `eval/mean` is not 0% at 27K, it hit
+its best value yet: 22% at epoch 27500, driven by `hinge_cabinet` at 67%
+(2/3 rollouts, its own best so far). Full eval/mean sequence so far: 0, 0, 0,
+0, 11, 11, 0, 0, 11, 0, **22**. Noisy, but the TensorBoard trend call on both
+`eval/mean` and `eval/hinge_cabinet` reads "improving" with the peak at the
+most recent point. Tonight's stated win condition — any rollout success above
+0% — has plausibly already been met; whether it holds needs the next couple
+of eval points to confirm it isn't another single-rollout blip like the
+12500–15000 bump. Per the pre-agreed trigger, **no unfreeze** — the premise
+("still 0% at 27K") wasn't met, so the architecture stays frozen and training
+continues unmodified. `train/loss` still in its usual 0.05–0.10 band, not used
+for this decision. No action taken.
