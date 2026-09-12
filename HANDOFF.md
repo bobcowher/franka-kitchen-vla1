@@ -270,3 +270,15 @@ elsewhere). Not touching anything: no authorized trigger fits a "peaked then
 declined" pattern, and this needs Robert's judgment on whether it's noise or
 a real regression, not a unilateral architecture change. No action taken —
 flagging clearly for the morning.
+
+**05:19 — hourly cron check.** Epoch 64500/100K. Pattern holds steady: after
+the 40–45K peak and the four-checkpoint reversal, `eval/mean` ticked back up
+to 22% at 57500 (hinge_cabinet 67% again) before dropping to 0% at both 60000
+and 62500. Full picture across the whole run is a noisy oscillation between
+0% and 56%, occasional spikes almost always carried by `hinge_cabinet`, no
+sustained plateau either way. `train/loss` continues its slow, steady decline
+(0.057–0.09 band, best-ever region) — training itself looks healthy, the
+volatility is on the eval/rollout side, consistent with 3-rollout resolution
+plus whatever is making `hinge_cabinet` inconsistent rather than any training
+instability. No trigger crossed, nothing actionable changed since the last
+check. No action taken.
