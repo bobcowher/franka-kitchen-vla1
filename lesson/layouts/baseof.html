@@ -43,6 +43,14 @@
 </main>
 
 <script>
+  // The pager sits at the foot of the page, so without this the browser keeps
+  // the scroll offset and the next chapter opens near its bottom.
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+  window.scrollTo({ top: 0, behavior: "instant" });
+  addEventListener("pageshow", function (e) {
+    if (e.persisted) window.scrollTo({ top: 0, behavior: "instant" });
+  });
+
   (function () {
     var root = document.documentElement;
     var btn = document.getElementById("theme-btn");
@@ -64,6 +72,82 @@
       if (t) t.checked = false;
     });
   });
+
+  // ---- reading progress -------------------------------------------------
+  // Stored per browser. Reads and writes are wrapped because a private window
+  // or blocked site data makes localStorage throw rather than return null.
+  (function () {
+    var KEY = "vla-book-read";
+
+    function slugOf(path) {
+      return path.replace(/\/index\.html$/, "").replace(/\.html$/, "")
+                 .replace(/\/$/, "").split("/").pop();
+    }
+    function load() {
+      try { return new Set(JSON.parse(localStorage.getItem(KEY) || "[]")); }
+      catch (e) { return new Set(); }
+    }
+    function save(set) {
+      try { localStorage.setItem(KEY, JSON.stringify([...set])); } catch (e) {}
+    }
+
+    var read = load();
+    var here = slugOf(location.pathname);
+    var items = [...document.querySelectorAll(".toc a")];
+
+    function paint() {
+      items.forEach(function (a) {
+        var done = read.has(slugOf(a.getAttribute("href")));
+        a.classList.toggle("read", done);
+        a.querySelector(".tick").textContent = done ? "\u2713" : "";
+      });
+      var n = items.filter(function (a) {
+        return read.has(slugOf(a.getAttribute("href")));
+      }).length;
+      var out = document.getElementById("progress");
+      if (out) {
+        out.textContent = n + " of " + items.length + " read";
+        out.nextElementSibling.hidden = n === 0;
+      }
+    }
+
+    // A tick per chapter, clickable so you can mark where you already are.
+    items.forEach(function (a) {
+      var tick = document.createElement("span");
+      tick.className = "tick";
+      tick.title = "Mark read";
+      a.appendChild(tick);
+      tick.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var s = slugOf(a.getAttribute("href"));
+        read.has(s) ? read.delete(s) : read.add(s);
+        save(read);
+        paint();
+      });
+    });
+
+    // Moving on marks the chapter you are leaving.
+    var next = document.querySelector(".pager-next");
+    if (next && here) {
+      next.addEventListener("click", function () {
+        read.add(here);
+        save(read);
+      });
+    }
+
+    var reset = document.getElementById("progress-reset");
+    if (reset) {
+      reset.addEventListener("click", function (e) {
+        e.preventDefault();
+        read = new Set();
+        save(read);
+        paint();
+      });
+    }
+
+    paint();
+  })();
 </script>
 
 </body>
