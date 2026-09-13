@@ -691,3 +691,6 @@ pre code {
   color: var(--faint);
 }
 .progress a { margin-left: 0.5rem; text-transform: none; letter-spacing: 0; }
+
+/* Scroll target at the document head; must be in flow to be scrollable-to. */
+#top { display: block; height: 0; outline: none; }

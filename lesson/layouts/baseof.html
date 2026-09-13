@@ -23,6 +23,7 @@
 </head>
 <body>
 
+<span id="top" tabindex="-1"></span>
 <a class="skip" href="#main">Skip to content</a>
 
 <input type="checkbox" id="nav-toggle" hidden>
@@ -43,13 +44,39 @@
 </main>
 
 <script>
-  // The pager sits at the foot of the page, so without this the browser keeps
-  // the scroll offset and the next chapter opens near its bottom.
-  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
-  window.scrollTo({ top: 0, behavior: "instant" });
-  addEventListener("pageshow", function (e) {
-    if (e.persisted) window.scrollTo({ top: 0, behavior: "instant" });
-  });
+  // The pager sits at the foot of the page, so the browser keeps its scroll
+  // offset and the next chapter opens near its bottom.
+  //
+  // window.scrollTo alone is not enough when this page is inside an iframe that
+  // is sized to its content: the scrollbar belongs to the parent document and
+  // scrollTo only moves our own, which has nowhere to go. scrollIntoView is
+  // handled by the browser rather than by script, so it walks up and scrolls
+  // ancestor frames too, including across origins.
+  (function () {
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+
+    var done = false;
+    function toTop() {
+      if (done) return;
+      window.scrollTo({ top: 0, behavior: "instant" });
+      var top = document.getElementById("top");
+      if (!top) return;
+      try { top.scrollIntoView({ block: "start", inline: "nearest" }); }
+      catch (e) { top.scrollIntoView(); }
+    }
+
+    // The iframe is resized after content lands, which can move us again, so
+    // retry briefly. Any deliberate scroll cancels the rest.
+    ["wheel", "touchstart", "keydown"].forEach(function (evt) {
+      addEventListener(evt, function () { done = true; }, { passive: true, once: true });
+    });
+
+    toTop();
+    requestAnimationFrame(toTop);
+    addEventListener("load", toTop);
+    [60, 200, 500].forEach(function (ms) { setTimeout(toTop, ms); });
+    addEventListener("pageshow", function (e) { if (e.persisted) toTop(); });
+  })();
 
   (function () {
     var root = document.documentElement;
