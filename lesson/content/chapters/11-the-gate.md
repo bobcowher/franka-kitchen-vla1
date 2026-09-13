@@ -14,22 +14,44 @@ the point: a failure in an earlier one makes the later answers meaningless.
 Encode ten different frames with the same instruction. If they produce the same
 vector, the head has nothing to read.
 
+Spread those ten across the episode rather than taking the first ten steps,
+which are nearly the same picture and would make this question look worse than
+it is:
+
+```python
+index = np.linspace(0, len(data["action"]) - 1, N).astype(int)
+images = frames.resize(data["camera_scene"][index], IMAGE_SIZE)
+```
+
 <p class="filename">Filename: <strong>scripts/overfit.py</strong></p>
 
 ```python
-def signal_ratio(h):
-    """How much of the hidden state varies across samples.
+def hidden(frames_u8, task_ids):
+    """The vector the head sees, before the head."""
+    with torch.no_grad():
+        out = model.vlm(input_ids=model.prompt_ids[task_ids],
+                        attention_mask=model.prompt_mask[task_ids],
+                        pixel_values=model.preprocess(frames_u8))
+    return out.last_hidden_state[torch.arange(len(task_ids), device="cuda"),
+                                 model.prompt_end[task_ids]].float()
 
-    Not cosine similarity: a few dimensions carry ~60x the median magnitude
-    and dominate any dot product, so cosine reads ~0.99 regardless.
+
+def spread(h, label):
+    """How much of the hidden state actually varies across these inputs.
+
+    Not cosine similarity. SmolLM2's residual stream has massive activation
+    outliers -- one dim here carries sixty times the median magnitude -- so
+    every pair reads ~0.99 whether or not the input mattered. Split
+    h = mean + deviation and report the ratio instead.
     """
-    mean = h.mean(0, keepdim=True)
-    return (h - mean).norm(dim=1).mean().item() / mean.norm().item()
+    deviation = (h - h.mean(0)).norm(dim=1).mean()
+    print(f"  {label}: ||mean|| {h.mean(0).norm():.1f}  "
+          f"||deviation|| {deviation:.2f}  ratio {deviation / h.mean(0).norm():.4f}")
 
 
-frames = torch.stack([sample_frame() for _ in range(10)])
-h = encode(frames, task=torch.zeros(10, dtype=torch.long))
-print(f"image  ratio {signal_ratio(h):.4f}")
+print("
+1. ten different frames, same instruction")
+spread(hidden(images, task), "hidden state")
 ```
 
 **Reading: 0.0515.** Small, but real.
@@ -41,8 +63,11 @@ conditioning existing at all, which is the entire justification for putting a
 language model in the loop instead of a vision encoder.
 
 ```python
-h = encode(frames[:1].expand(7, -1, -1, -1), task=torch.arange(7))
-print(f"instr  ratio {signal_ratio(h):.4f}")
+print("
+2. one frame, all seven instructions")
+all_tasks = torch.arange(len(TASK_DESCRIPTIONS)).cuda()
+one_frame = np.repeat(images[:1], len(TASK_DESCRIPTIONS), axis=0)
+spread(hidden(one_frame, all_tasks), "hidden state")
 ```
 
 **Reading: 0.1225.** Larger than the image's effect.
@@ -50,11 +75,20 @@ print(f"instr  ratio {signal_ratio(h):.4f}")
 ## 3. Can ten samples reach zero loss?
 
 ```python
-states, actions, _, _, tasks = dataset.sample_batch(10)
-for step in range(400):
-    loss = F.mse_loss(model(states['camera_scene'], tasks), actions)
-    optimizer.zero_grad(); loss.backward(); optimizer.step()
-print(f"overfit 10 samples: {loss.item():.6f}")
+print(f"
+3. overfitting {N} samples for {STEPS} steps")
+optimizer = torch.optim.Adam(model.head.parameters(), 1e-2)
+for step in range(STEPS):
+    loss = F.mse_loss(model(images, task), actions)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    if step % 50 == 0 or step == STEPS - 1:
+        print(f"  step {step:>4}  loss {loss.item():.6f}")
+
+print(f"
+  target variance (loss if it predicted the mean): "
+      f"{actions.var(0, unbiased=False).mean().item():.6f}")
 ```
 
 **Reading: 0.000000** after 400 steps at lr 1e-2.

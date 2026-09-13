@@ -137,6 +137,17 @@ completion. The `squeeze()` drops the batch dimension the model always adds.
 2.55 epochs per second on an RTX 3090, so 100,000 epochs is about 11 hours of
 training plus roughly 100 minutes of in-loop evaluation.
 
+<div class="note">
+<span class="note-label">Reading this against the repository</span>
+The listings in Part II are the <strong>pre-unfreeze</strong> form, which is
+what you should write first. The repository is the finished state, so
+<code>model.py</code> and <code>agent.py</code> there also carry the unfreeze
+support from <a href="{{< relref "chapters/15-where-this-goes" >}}">Chapter 15</a>:
+<code>trainable_state_dict()</code> in place of the bare head save, and Adam
+parameter groups in place of a single parameter list. Build the simple version
+first. It is the one the gate in Part III is designed to test.
+</div>
+
 <div class="checkpoint">
 <span class="note-label">Do not start a long run yet</span>
 Everything compiles and the loss goes down. That is not evidence it works.

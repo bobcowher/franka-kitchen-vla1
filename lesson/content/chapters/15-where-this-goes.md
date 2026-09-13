@@ -51,16 +51,27 @@ instead of silently training nothing:
 <p class="filename">Filename: <strong>model.py</strong></p>
 
 ```python
+# Matched against parameter names rather than hardcoding an attribute path
+# (self.vlm.text_model.layers[...]) because that path is specific to the
+# current Idefics3/SmolVLM class and would silently no-op if HF renames it.
 _TEXT_LAYER_RE = re.compile(r"(?:text_model|language_model)\.layers\.(\d+)\.")
 
 
 def _unfreeze_last_text_layers(vlm, n):
+    """Set requires_grad on the last n text-decoder layers' parameters."""
     if n <= 0:
         return
     indices = {int(m.group(1)) for name, _ in vlm.named_parameters()
                if (m := _TEXT_LAYER_RE.search(name))}
     if not indices:
-        raise RuntimeError("no text-decoder layers matched; naming has changed")
+        raise RuntimeError(
+            "UNFREEZE_LAST_N_LAYERS is set but no 'text_model.layers.N.' or "
+            "'language_model.layers.N.' parameters were found on the VLM -- "
+            "backbone naming has changed, update _TEXT_LAYER_RE.")
+    if n > len(indices):
+        raise RuntimeError(
+            f"UNFREEZE_LAST_N_LAYERS={n} but the text tower only has "
+            f"{len(indices)} layers.")
     keep = set(sorted(indices)[-n:])
     for name, p in vlm.named_parameters():
         m = _TEXT_LAYER_RE.search(name)
@@ -74,10 +85,15 @@ learning rate. A head-sized rate on pretrained weights destroys them quickly:
 <p class="filename">Filename: <strong>agent.py</strong></p>
 
 ```python
+# Head always trains at learning_rate. Any unfrozen VLM layers train slower in
+# their own group -- they're pretrained, so a head-sized LR would wreck them.
+backbone_lr = float(os.environ.get("BACKBONE_LR", learning_rate * 0.1))
 param_groups = [{"params": self.model.head.parameters(), "lr": learning_rate}]
-vlm_params = [p for p in self.model.vlm.parameters() if p.requires_grad]
+vlm_params = self.model.trainable_vlm_parameters()
 if vlm_params:
-    param_groups.append({"params": vlm_params, "lr": learning_rate * 0.1})
+    param_groups.append({"params": vlm_params, "lr": backbone_lr})
+    print(f"agent: training {sum(p.numel() for p in vlm_params):,} "
+          f"backbone params at lr={backbone_lr}")
 self.optimizer = Adam(param_groups)
 ```
 

@@ -38,7 +38,11 @@ EPOCHS = [10000, 12500, 15000, 17500, 20000]
 ARMS = {9: "frozen", 10: "unfrozen2"}
 TASKS = ["hinge cabinet", "top burner"]
 ROLLOUTS = int(os.environ.get("AB_ROLLOUTS", "50"))
-WORKERS = int(os.environ.get("AB_WORKERS", "5"))
+# MuJoCo's EGL contexts are not reliable many-at-once on one card: at 5 workers
+# on lab, two died -- one raising from eglMakeCurrent during teardown, one on
+# SIGSEGV before its first rollout. 3 is what survived. A desktop with a display
+# uses GLFW instead and does not hit this.
+WORKERS = int(os.environ.get("AB_WORKERS", "3"))
 
 OUT = os.path.join(os.environ.get("BEEKEEPER_RUN_DIR", "."), "ab")
 
@@ -64,22 +68,30 @@ def main():
 
     # Bounded fan-out: each worker holds its own copy of the VLM.
     results, running = {}, []
-    queue = list(jobs)
+    path_of = dict(jobs)
+    queue = [(label, path, 0) for label, path in jobs]
     while queue or running:
         while queue and len(running) < WORKERS:
-            label, path = queue.pop(0)
+            label, path, attempt = queue.pop(0)
             out = os.path.join(OUT, f"{label}.json")
             cmd = [sys.executable, "-u", os.path.join(HERE, "evaluate.py"), path,
                    "--rollouts", str(ROLLOUTS), "--tasks", *TASKS, "--out", out]
             log = open(os.path.join(OUT, f"{label}.log"), "w")
-            running.append((label, out, subprocess.Popen(cmd, stdout=log, stderr=log), log))
-            print(f"started {label}", flush=True)
+            running.append((label, out, subprocess.Popen(cmd, stdout=log, stderr=log),
+                            log, attempt))
+            print(f"started {label}" + (" (retry)" if attempt else ""), flush=True)
 
-        label, out, proc, log = running.pop(0)
+        label, out, proc, log, attempt = running.pop(0)
         code = proc.wait()
         log.close()
         if code != 0:
-            print(f"FAILED {label} (exit {code}) -- see {label}.log", flush=True)
+            # EGL failures are intermittent, so one requeue is worth more than
+            # a hole in the table. A real bug fails twice and is reported.
+            if attempt == 0:
+                print(f"retrying {label} (exit {code})", flush=True)
+                queue.append((label, path_of[label], 1))
+                continue
+            print(f"FAILED {label} twice (exit {code}) -- see {label}.log", flush=True)
             continue
         with open(out) as f:
             results[label] = json.load(f)[0]
