@@ -12,6 +12,35 @@ can't reason about the readout in Chapter 7 without knowing exactly what one
 observation contains, and because one of these wrappers is where the VLA's only
 environment change lands.
 
+## Rendering, before anything else
+
+One line has to run before MuJoCo is imported, and if you miss it on a headless
+machine you get an opaque failure at the first `reset()`:
+
+<p class="filename">Filename: <strong>agent.py</strong></p>
+
+```python
+# MuJoCo picks its GL backend at import time and defaults to GLFW, which needs
+# an X display. Headless training servers have none, so fall back to EGL there.
+# setdefault, so the environment can still override.
+if not os.environ.get("DISPLAY"):
+    os.environ.setdefault("MUJOCO_GL", "egl")
+```
+
+It has to sit above `import gymnasium`, because MuJoCo chooses its backend when
+it is imported and will not reconsider afterwards.
+
+<div class="trap">
+<span class="note-label">Trap · EGL is not reliable many-at-once</span>
+On a desktop with a display you get GLFW and none of this matters. On a headless
+box you get EGL, and EGL contexts do not coexist happily on one GPU. Running
+five rollout processes in parallel on a training server, two of them died: one
+raising from <code>eglMakeCurrent</code> during teardown, the other on a
+segfault before its first step. Three processes was stable. If you plan to
+parallelize rollouts later, and Chapter 13 will want you to, that is the ceiling
+to expect on a headless machine.
+</div>
+
 ## What the environment gives you
 
 Franka Kitchen is a MuJoCo simulation of a 7-joint Franka arm with a two-finger

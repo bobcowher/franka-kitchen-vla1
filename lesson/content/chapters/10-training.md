@@ -66,7 +66,10 @@ GRIPPER_WEIGHT = 0.125
 
 
 def train(self, epochs, batch_size):
-    summary_writer = SummaryWriter(...)
+    runs_dir = os.environ.get("BEEKEEPER_TENSORBOARD_DIR", "runs")
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    summary_writer = SummaryWriter(
+        os.path.join(runs_dir, f"{stamp}_bs={batch_size}"))
 
     for epoch in range(epochs):
         states, actions, _, _, tasks = self.dataset.sample_batch(batch_size)
@@ -85,7 +88,13 @@ def train(self, epochs, batch_size):
         loss.backward()
         self.optimizer.step()
 
+        if epoch % 10 == 0:
+            summary_writer.add_scalar("train/loss", loss, epoch)
+            summary_writer.add_scalar("train/arm", arm_loss, epoch)
+            summary_writer.add_scalar("train/gripper", gripper_loss, epoch)
+
         if epoch % 100 == 0:
+            print(f"Epoch: {epoch} Loss: {loss.item()}")
             self.model.save_checkpoint()
 
         if epoch and epoch % 2500 == 0:
@@ -95,8 +104,9 @@ def train(self, epochs, batch_size):
 The split loss comes straight from the statistics we printed in Chapter 4.
 Dimensions 7 and 8 are binary and carry about eight times an arm joint's
 variance, so `GRIPPER_WEIGHT = 0.125` puts them back on comparable footing.
-Log the two halves separately as well as the total, or you won't be able to tell
-which one is moving.
+All three go to TensorBoard separately. Logging only the total leaves you unable
+to tell which half is moving, and they move differently: the arm term declines
+steadily while the gripper term stays noisy for the whole run.
 
 Here's what the first few thousand epochs look like:
 

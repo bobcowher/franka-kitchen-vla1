@@ -145,6 +145,18 @@ into trivia.
 | 12 | `scripts/probe.py` | write it |
 | 13 | `scripts/evaluate.py` | write it |
 
+<div class="note">
+<span class="note-label">When a listing and your file disagree</span>
+The <a href="https://github.com/bobcowher/franka-kitchen-vla1">repository</a> is
+the ground truth, and it holds the finished state of every file. If something
+here doesn't behave the way the output says it should, diff your file against
+the one in the repo before debugging anything else. Two deliberate differences
+to expect: Part II teaches the pre-unfreeze build, so the repo's
+<code>model.py</code> and <code>agent.py</code> also carry the Chapter 15
+machinery, and the repo's <code>agent.py</code> skips allocating the 36 GB frame
+buffer when constructed for evaluation.
+</div>
+
 Parts I and II build the policy. Part III is about telling whether it works,
 which took us a great deal longer to get right than the model did, and Part IV
 collects what we learned from that.

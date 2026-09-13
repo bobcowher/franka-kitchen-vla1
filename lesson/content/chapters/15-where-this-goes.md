@@ -99,6 +99,47 @@ if vlm_params:
 self.optimizer = Adam(param_groups)
 ```
 
+Unfreezing also changes what a checkpoint has to contain, since the head is no
+longer the only thing that moved. The format below stays backward compatible:
+with nothing unfrozen the `vlm` key is absent and it collapses to exactly the
+head-only dictionary Chapter 9 wrote, so old checkpoints still load.
+
+<p class="listing">Listing 15.3 <em>Saving head and backbone together</em></p>
+<p class="filename">Filename: <strong>model.py</strong></p>
+
+```python
+def trainable_vlm_parameters(self):
+    return [p for p in self.vlm.parameters() if p.requires_grad]
+
+def trainable_state_dict(self):
+    """Head, plus any unfrozen VLM layers -- the latter is empty and the
+    format collapses back to the old head-only checkpoint whenever
+    UNFREEZE_LAST_N_LAYERS is 0."""
+    state = {"head": self.head.state_dict()}
+    vlm_trainable = {n: p.detach().cpu()
+                     for n, p in self.vlm.named_parameters() if p.requires_grad}
+    if vlm_trainable:
+        state["vlm"] = vlm_trainable
+    return state
+
+def save_checkpoint(self):
+    torch.save(self.trainable_state_dict(), self.checkpoint_file)
+
+def load_checkpoint(self, path=None):
+    state = torch.load(path or self.checkpoint_file, map_location=self.device)
+    if "head" in state:
+        self.head.load_state_dict(state["head"])
+        if "vlm" in state:
+            self.vlm.load_state_dict(state["vlm"], strict=False)
+    else:
+        # Pre-unfreeze checkpoint: a bare head state_dict.
+        self.head.load_state_dict(state)
+```
+
+`strict=False` on the backbone load is doing real work: the saved dictionary
+holds only the layers that were unfrozen, so every other backbone weight is
+legitimately absent and comes from the pretrained load instead.
+
 Two layers is 19,664,640 parameters, roughly a thousand times the head. Note
 that this also invalidates the probe cache from
 [Chapter 12]({{< relref "chapters/12-the-fast-loop" >}}), and changes checkpoints from 85 KB to

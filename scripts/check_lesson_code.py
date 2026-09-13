@@ -38,6 +38,33 @@ def listings():
                     yield chapter.name, filename, block.group(1)
 
 
+TEACHES = ["model.py", "agent.py"]
+SKIP_PREFIX = ("#", "import ", "from ")
+
+
+def coverage():
+    """How much of each taught file appears in some listing.
+
+    A line the guide never shows is a line the reader has to invent. Staged
+    differences (Part II teaches the pre-unfreeze build) are excluded.
+    """
+    shown = set()
+    for _, _, code in listings():
+        shown.update(line.strip() for line in code.splitlines() if line.strip())
+
+    for src in TEACHES:
+        total = gaps = 0
+        for line in (ROOT / src).read_text().splitlines():
+            text = line.strip()
+            if (not text or text.startswith(SKIP_PREFIX) or text[:3] in ('"""', "'''")
+                    or text in STAGED):
+                continue
+            total += 1
+            gaps += text not in shown
+        pct = 100 * (total - gaps) // total if total else 100
+        print(f"coverage {src:<12} {total - gaps:>3}/{total} lines shown ({pct}%)")
+
+
 def main():
     drift, missing = [], []
     for chapter, filename, code in listings():
@@ -58,6 +85,8 @@ def main():
         print(f"MISSING  {m}")
     for d in drift:
         print(f"review   {d}")
+    print()
+    coverage()
     print(f"\n{len(drift)} lines to review, {len(missing)} missing files")
     return 1 if missing else 0
 
