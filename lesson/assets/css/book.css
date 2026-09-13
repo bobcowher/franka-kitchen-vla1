@@ -18,7 +18,7 @@
   --warn-bg:  #F9EFD9;
 
   --serif: "Newsreader", Georgia, "Times New Roman", serif;
-  --sans:  "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sans:  "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono:  "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
 
   --rail: 19rem;
@@ -575,3 +575,36 @@ pre code {
   html { scroll-behavior: auto; }
   * { transition: none !important; }
 }
+
+/* ---------- code listings ---------- */
+
+/* A caption names the file you are editing. It sits on the code block it
+   introduces, so the two read as one object. */
+.filename {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--rail-bg);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  padding: 0.45rem 1.15rem;
+  margin: 0;
+}
+.filename + .highlight pre,
+.filename + pre { border-radius: 0 0 5px 5px; }
+.filename strong { color: var(--ink); font-weight: 500; }
+
+/* First use of a term. */
+.prose em.term { font-style: normal; font-weight: 600; color: var(--accent); }
+
+.checkpoint {
+  background: var(--raised);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 1.05rem 1.2rem;
+  margin: 0 0 1.5rem;
+}
+.checkpoint > :last-child { margin-bottom: 0; }
+.checkpoint .note-label { color: var(--accent); }

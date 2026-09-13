@@ -1,6 +1,6 @@
 {{ $pages := (where .Site.RegularPages "Section" "chapters").ByWeight }}
 <nav class="sidebar" aria-label="Chapters">
-  <a class="brand" href="{{ "" | relURL }}">
+  <a class="brand" href="{{ .Site.Home.RelPermalink }}">
     <span class="brand-title">{{ .Site.Title }}</span>
     <span class="brand-sub">Franka Kitchen · build log</span>
   </a>

@@ -19,6 +19,6 @@ which are the more useful half.
   <div><dt>Best task</dt><dd>96%</dd></div>
 </dl>
 
-If you read nothing else, read [Chapter 10](chapters/10-rollouts/). The
+If you read nothing else, read [Chapter 13]({{< relref "chapters/13-rollouts" >}}). The
 architecture worked earlier than we could tell, and the reason we couldn't
 tell had nothing to do with the architecture.
