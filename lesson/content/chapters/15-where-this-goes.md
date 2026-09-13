@@ -8,7 +8,7 @@ standfirst: "A working policy, a measured ceiling, and four levers in the order 
 
 ## Where it landed
 
-A frozen 507M-parameter vision-language model with a 21,129-parameter head,
+A frozen 460M-parameter vision-language model with a 21,129-parameter head,
 trained on 56,005 demonstration steps, driving a Franka arm from one camera
 frame and one English sentence.
 

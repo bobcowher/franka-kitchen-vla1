@@ -48,7 +48,7 @@ width can never disagree with what the environment accepts.
 
 The optimizer is given `self.model.head.parameters()`, not
 `self.model.parameters()`. The VLM has `requires_grad=False` so its gradients
-would be `None` either way, but handing 507M frozen tensors to Adam makes it
+would be `None` either way, but handing 460M frozen tensors to Adam makes it
 allocate optimizer state for them.
 
 ## The loop

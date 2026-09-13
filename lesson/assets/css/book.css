@@ -608,3 +608,52 @@ pre code {
 }
 .checkpoint > :last-child { margin-bottom: 0; }
 .checkpoint .note-label { color: var(--accent); }
+
+/* ---------- numbered listings, output, exercises ---------- */
+
+.listing {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--paper);
+  background: var(--accent);
+  border-radius: 5px 5px 0 0;
+  padding: 0.5rem 1.15rem;
+  margin: 0;
+}
+.listing em { font-style: normal; font-weight: 400; opacity: 0.88; }
+.listing + .filename { border-radius: 0; }
+.listing + .highlight pre,
+.listing + .filename + .highlight pre { border-radius: 0 0 5px 5px; }
+
+/* Printed output, visually distinct from source you type. */
+.output { margin: 0 0 1.5rem; }
+.output-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0 0 0.35rem;
+}
+.output pre {
+  background: var(--rail-bg);
+  border: 1px dashed var(--rule);
+  color: var(--muted);
+}
+
+.exercise {
+  background: var(--warn-bg);
+  border-radius: 5px;
+  padding: 1.05rem 1.2rem;
+  margin: 0 0 1.5rem;
+}
+.exercise > :last-child { margin-bottom: 0; }
+.exercise h4 {
+  font-family: var(--sans);
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--warn);
+  margin: 0 0 0.5rem;
+}

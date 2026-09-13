@@ -12,7 +12,7 @@ includes several that turned out to be wrong, which are kept because working out
 why they were wrong taught us more than the model did.
 
 <dl class="stats">
-  <div><dt>Frozen</dt><dd>507M</dd></div>
+  <div><dt>Frozen</dt><dd>460M</dd></div>
   <div><dt>Trained</dt><dd>21,129</dd></div>
   <div><dt>Prefix</dt><dd>79–84</dd></div>
   <div><dt>Demos</dt><dd>56,005</dd></div>
