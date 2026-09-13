@@ -2,14 +2,14 @@
 title: "Building a VLA by Hand"
 ---
 
-This is a build log for a vision-language-action model assembled from parts,
-not fine-tuned from someone else's. No SmolVLA, no lerobot, no adapting an
-existing VLA. A frozen 507M-parameter vision-language model, an action head
-written from scratch, and a Franka arm in a simulated kitchen.
+This is a guide to building a vision-language-action model out of parts rather
+than fine-tuning someone else's. We take a small pretrained vision-language
+model, freeze it, write an action head ourselves, and train it to drive a Franka
+arm around a simulated kitchen.
 
-The point is the construction. Every number on these pages was measured on
-this data, on this hardware — including the ones that turned out to be wrong,
-which are the more useful half.
+Every number on these pages was measured on this data and this hardware. That
+includes several that turned out to be wrong, which are kept because working out
+why they were wrong taught us more than the model did.
 
 <dl class="stats">
   <div><dt>Frozen</dt><dd>507M</dd></div>
@@ -19,6 +19,7 @@ which are the more useful half.
   <div><dt>Best task</dt><dd>96%</dd></div>
 </dl>
 
-If you read nothing else, read [Chapter 13]({{< relref "chapters/13-rollouts" >}}). The
-architecture worked earlier than we could tell, and the reason we couldn't
-tell had nothing to do with the architecture.
+Start at Chapter 1 if you want to build along. If you would rather read one
+chapter to decide whether the rest is worth your time, read
+[Chapter 13]({{< relref "chapters/13-rollouts" >}}), which is about how we spent
+a night watching a number that could not have told us anything.
