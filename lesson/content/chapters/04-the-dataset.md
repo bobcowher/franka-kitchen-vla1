@@ -6,8 +6,13 @@ weight: 4
 standfirst: "56,005 demonstration steps, why they live in RAM, and two things the data tells you before training starts."
 ---
 
-Demonstrations arrive as 582 `.npz` shards, one per recorded episode. Each
-holds a sequence of frames, joint states, actions and a task label.
+Like the environment, `dataset.py` arrived from the behavior-cloning project and
+needed exactly one line changed. We're walking through it because the batch it
+hands you is what the model consumes, and two facts buried in this data will
+change code you write later.
+
+Demonstrations arrive as 582 `.npz` shards, one per recorded episode. Each holds
+a sequence of frames, joint states, actions and a task label.
 
 A <em class="term">shard</em> is one continuous episode: a human driving the
 arm through one task from reset to success. This matters later, because
@@ -68,8 +73,10 @@ def sample_batch(self, batch_size):
             self.task_id_memory[batch])
 ```
 
-Frames stay in HWC order, matching `ObsReshapeWrapper` from the previous
-chapter. That comment is in the source for a reason, and
+That single commented line is the whole VLA change to this file. It used to read
+`self.camera_scene_memory[batch].transpose(0, 3, 1, 2)`, producing the
+channels-first batch a `Conv2d` expects. Frames now stay HWC, matching
+`ObsReshapeWrapper` from the previous chapter. That comment is in the source for a reason, and
 [Chapter 14]({{< relref "chapters/14-traps" >}}) is the reason.
 
 ## Two things the data tells you

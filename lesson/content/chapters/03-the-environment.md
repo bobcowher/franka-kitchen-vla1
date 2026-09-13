@@ -6,8 +6,13 @@ weight: 3
 standfirst: "What one observation is, and three wrappers that make the arm behave."
 ---
 
-Before any model, you need to know exactly what the policy sees and what it
-sends back. Get this wrong and every later measurement is meaningless.
+Almost everything in this chapter came over from the behavior-cloning project
+unchanged. We're reading it rather than writing it, because you cannot reason
+about the chapters that follow without knowing exactly what one observation is
+and what the environment does with the numbers you send back.
+
+There is one change the VLA needs, and it's two lines. We'll get to it at the
+end.
 
 ## What the environment gives you
 
@@ -147,7 +152,15 @@ class ObsReshapeWrapper(ObservationWrapper):
 ```
 
 **Frames come out HWC** — height, width, channels. The dataset uses that same
-order. Keeping both sides identical is the entire job of this wrapper,
+order.
+
+This is the one place in the whole environment layer that the VLA changed. The
+conv policy wanted channels-first, so the wrapper used to end with
+`reduced.transpose(2, 0, 1)` and declare its `Box` as
+`(3, image_size, image_size)`. Our model permutes to channels-first on the GPU
+inside `preprocess`, which Chapter 9 covers, so a transpose here would only be
+undone a moment later. Two lines: drop the transpose, and rewrite the `Box`
+shape. Keeping both sides identical is the entire job of this wrapper,
 and [Chapter 14]({{< relref "chapters/14-traps" >}}) covers what happened the one time they
 disagreed.
 

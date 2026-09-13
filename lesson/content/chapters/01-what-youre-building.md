@@ -24,6 +24,40 @@ were wrong in ways that took hours to notice. Those attempts are kept in the
 guide rather than tidied away, because the reasons they were wrong are more
 useful than the code that eventually worked.
 
+## Where this starts
+
+This isn't a from-scratch project, and it's worth being clear about that before
+you plan your afternoon. The repository began as a copy of a working
+behavior-cloning setup for the same environment: a convolutional policy, the
+Franka Kitchen wrappers, a demonstration collector driven by a gamepad, and a
+dataset loader. All of that existed and worked before any of this started.
+
+What we're doing is a conversion. We take that project and replace its
+perception and policy with a frozen vision-language model and a head we write.
+Here is the honest accounting of what that touched:
+
+| file | what happened to it |
+|---|---|
+| `model.py` | rewritten completely |
+| `agent.py` | substantially rewritten |
+| `scripts/overfit.py` | new |
+| `scripts/probe.py` | new |
+| `scripts/evaluate.py` | new |
+| `dataset.py` | **one line** |
+| `gym_robotics_custom.py` | **two lines** |
+| everything else | untouched |
+
+Those three lines are all the same change, and Chapters 3 and 4 explain it: the
+conv policy wanted its frames in channels-first order, and the VLA wants them
+channels-last. One `transpose` comes out of the dataset, another comes out of
+the environment wrapper, and a `Box` shape is rewritten to match.
+
+If you're following along without a behavior-cloning project of your own, read
+Chapters 3 and 4 as a description of the ground you need to be standing on
+rather than as code to type. They're there because you cannot understand the
+pieces that follow without knowing exactly what an observation is and where the
+demonstrations come from, not because converting them is any of the work.
+
 ## The finished shape
 
 The model is SmolVLM2-500M. It reads one 448-pixel camera frame and one English
@@ -90,7 +124,7 @@ different problem from the one we're solving here.
 
 ## How the guide is arranged
 
-Chapters follow the order you'd write the code in. Each one sets up a problem,
+Chapters follow the order you would work through the conversion in. Each one sets up a problem,
 works through the reasoning, gives you the code, and finishes with something
 specific to print so you can check that what you just wrote does what it should.
 Those checks matter more than usual here, because most of the ways this build
@@ -101,15 +135,15 @@ Where a measurement contradicted something reasonable, you'll get the reasonable
 version first. Reading a correction without the thing it corrects turns a lesson
 into trivia.
 
-| chapter | file | what goes in it |
+| chapter | file | you will |
 |---|---|---|
-| 3 | `gym_robotics_custom.py` | environment wrappers |
-| 4 | `dataset.py` | demonstration loading |
-| 5–9 | `model.py` | the frozen VLM and the head |
-| 10 | `agent.py` | the training loop |
-| 11 | `scripts/overfit.py` | the gate |
-| 12 | `scripts/probe.py` | the fast experiment loop |
-| 13 | `scripts/evaluate.py` | rollout measurement |
+| 3 | `gym_robotics_custom.py` | read it, then change two lines |
+| 4 | `dataset.py` | read it, then change one line |
+| 5–9 | `model.py` | write it |
+| 10 | `agent.py` | rewrite the training loop |
+| 11 | `scripts/overfit.py` | write it |
+| 12 | `scripts/probe.py` | write it |
+| 13 | `scripts/evaluate.py` | write it |
 
 Parts I and II build the policy. Part III is about telling whether it works,
 which took us a great deal longer to get right than the model did, and Part IV
