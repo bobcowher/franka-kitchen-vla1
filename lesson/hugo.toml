@@ -22,5 +22,5 @@ startLevel = 2
 endLevel = 3
 
 [params]
-description = "Turning a 507M-parameter vision-language model into a robot policy, one measurement at a time."
+description = "Turning a 460M-parameter vision-language model into a robot policy, one measurement at a time."
 repo = "https://github.com/bobcowher/franka-kitchen-vla1"
