@@ -36,6 +36,9 @@ def listings():
             for block in re.finditer(r"```python\n(.*?)```", chunk, re.S):
                 if filename:
                     yield chapter.name, filename, block.group(1)
+                # A caption binds only to the block beneath it; otherwise it
+                # leaks onto every later snippet in the chapter.
+                filename = None
 
 
 TEACHES = ["model.py", "agent.py"]

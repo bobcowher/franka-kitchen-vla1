@@ -6,8 +6,10 @@ weight: 4
 standfirst: "56,005 demonstration steps, why they all live in RAM, and two facts that change the loss function."
 ---
 
-Like the environment, `dataset.py` came over from the behavior-cloning project
-and needed exactly one line changed. We're walking through it because the batch
+Like the environment, `dataset.py` came over from the behavior-cloning project,
+and you'll change one line of it. The listings show the file after that change,
+and the edit itself is spelled out right after Listing 4.2. We're walking through
+the rest because the batch
 it produces is what the model consumes, and because there are two things hiding
 in this data that will change code we write in Chapter 10.
 
@@ -99,11 +101,21 @@ def sample_batch(self, batch_size):
             self.task_id_memory[batch])
 ```
 
-That commented line is the whole VLA change to this file. It used to read
-`self.camera_scene_memory[batch].transpose(0, 3, 1, 2)`, producing the
-channels-first batch a `Conv2d` expects. Frames now stay HWC, matching
-`ObsReshapeWrapper` from the previous chapter, and Chapter 9 does the permute on
-the GPU where it costs nothing.
+That commented line is the one edit in this file, and your copy doesn't have it
+yet. In yours, the line reads:
+
+```python
+"camera_scene": self.camera_scene_memory[batch].transpose(0, 3, 1, 2),
+```
+
+Delete `.transpose(0, 3, 1, 2)`, then replace the comment above the line with the
+one from Listing 4.2, since the old comment describes a conv stack that no longer
+exists.
+
+That transpose produced the channels-first batch a `Conv2d` expects. Frames now
+stay HWC, which matches the `ObsReshapeWrapper` you changed in the previous
+chapter, and Chapter 9 does the permute on the GPU where it costs nothing. With
+both edits in, the dataset and the environment agree on axis order again.
 
 ## Two facts in the actions
 

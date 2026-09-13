@@ -7,10 +7,14 @@ standfirst: "What one observation is, three wrappers that make the arm behave, a
 ---
 
 Almost everything in this chapter arrived from the behavior-cloning project
-unchanged, so we're going to read it rather than write it. It's here because you
+unchanged, so most of it you'll read rather than write. It's here because you
 can't reason about the readout in Chapter 7 without knowing exactly what one
-observation contains, and because one of these wrappers is where the VLA's only
-environment change lands.
+observation contains.
+
+The exception is the last section, where you make the one edit the VLA needs on
+the environment side. The listings along the way show the file *after* that
+edit, so if your copy of `ObsReshapeWrapper` doesn't match Listing 3.3, that's
+expected. The difference is the edit you haven't made yet.
 
 ## Rendering, before anything else
 
@@ -217,23 +221,65 @@ camera_scene range   : 0 - 255
 to 314 steps, so a policy still going at 400 has failed by any reasonable
 reading.
 
-## The two lines the VLA changed
+## Your turn: two lines
 
-Everything above arrived working. Here is the entire environment-side difference
-between the convolutional policy and ours.
-
-`ObsReshapeWrapper` used to finish by transposing to channels-first and declaring
-its space to match, because that is what `Conv2d` consumes:
+Up to here you've been reading. Now open `gym_robotics_custom.py` and find
+`ObsReshapeWrapper`. Your copy still hands out channels-first frames, because
+that's what the convolutional policy's `Conv2d` consumes. Two lines do it, one in
+`__init__` and one in `observation`:
 
 ```python
-reduced = frames.resize(observation["camera_scene"], self.image_size)
-return {**observation, "camera_scene": reduced.transpose(2, 0, 1)}
-# and:  spaces.Box(0, 255, (3, image_size, image_size), np.uint8)
+"camera_scene": spaces.Box(0, 255, (3, image_size, image_size), np.uint8),
+```
+
+```python
+"camera_scene": reduced.transpose(2, 0, 1),
 ```
 
 Our model permutes to channels-first on the GPU inside `preprocess`, which
-Chapter 9 covers, so a transpose here would only be undone a moment later. Drop
-it, and rewrite the `Box` shape to `(image_size, image_size, 3)`. That's it.
+Chapter 9 covers, so a transpose here would only be undone a moment later. Change
+the first line so the `Box` shape is `(image_size, image_size, 3)`, and delete
+`.transpose(2, 0, 1)` from the second:
+
+```python
+"camera_scene": spaces.Box(0, 255, (image_size, image_size, 3), np.uint8),
+```
+
+```python
+"camera_scene": reduced,
+```
+
+The comment above the second line still says CHW. Fix it too, or it'll mislead
+you the next time you read this file. Listing 3.3 has the replacement.
+
+<div class="checkpoint">
+<span class="note-label">Check before you continue</span>
+<p>Build the wrapper stack by hand and print both shapes:</p>
+
+```python
+import gymnasium as gym
+import gymnasium_robotics
+from gym_robotics_custom import HeldSetpointWrapper, VLAObservationWrapper, ObsReshapeWrapper
+
+env = gym.make("FrankaKitchen-v1", max_episode_steps=400,
+               tasks_to_complete=["hinge cabinet"], render_mode="rgb_array")
+env = HeldSetpointWrapper(env)
+env = VLAObservationWrapper(env, image_size=896)
+env = ObsReshapeWrapper(env, image_size=448)
+obs, _ = env.reset()
+print("observation :", obs["camera_scene"].shape)
+print("space       :", env.observation_space["camera_scene"].shape)
+```
+
+<p>You want both to print <code>(448, 448, 3)</code>. Before the edit they print
+<code>(3, 448, 448)</code>. If only one line changed, you forgot the
+<code>Box</code>: nothing complains at <code>reset()</code>, but the space and
+the frames it describes no longer agree.</p>
+</div>
+
+Until you make the matching edit in the next chapter, the dataset still hands out
+channels-first batches while the environment doesn't, so don't try to train in
+between. The trap below is what that mismatch looks like.
 
 <div class="trap">
 <span class="note-label">Trap · both sides of the line must agree</span>
