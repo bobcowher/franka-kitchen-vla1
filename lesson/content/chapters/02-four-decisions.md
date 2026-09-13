@@ -8,8 +8,7 @@ standfirst: "Each one closes a door. They are much cheaper to get right now than
 
 Before we touch the model, there are four choices to make. None of them is
 obviously correct, each one forecloses something later, and all four are far
-cheaper to settle now than after a checkpoint depends on them. Let's go through
-them in the order they came up.
+cheaper to settle now than after a checkpoint depends on them.
 
 ## Should we cache the VLM's output?
 
@@ -87,7 +86,4 @@ long-horizon tasks in a way that looks a great deal like compounding error, and
 chunking has gone from a nice-to-have to the most interesting thing left to try.
 </div>
 
-Next, we'll look at the environment. Most of it arrived from the
-behavior-cloning project and we're going to read rather than write it, but you
-need to know exactly what one observation contains before anything in Part II
-will make sense.
+Next: the environment, and what one observation contains.

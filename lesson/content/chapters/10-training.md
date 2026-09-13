@@ -7,9 +7,9 @@ standfirst: "Ordinary behavior cloning, one weighted loss term, and numbers for 
 ---
 
 Sample a batch, run it forward, compare against what the human did, step the
-optimizer. There is nothing exotic in this chapter, which is deliberate: the
-novel part of this build is the prefix, and we want a training loop boring
-enough that when something goes wrong we know it isn't here.
+optimizer. There is nothing exotic here by design. The novel part of this build
+is the prefix; a simple loop means any future bug almost certainly isn't in the
+training code.
 
 ## Setting up
 
@@ -181,5 +181,5 @@ built is learning, in increasing order of cost, and the first one takes under a
 minute.
 </div>
 
-Next, we'll build that first test, which asks three questions in an order where
-each one only makes sense if the previous answer was yes.
+Next: three questions that tell you whether what you just built works, in an
+order where each one only makes sense if the previous answered yes.

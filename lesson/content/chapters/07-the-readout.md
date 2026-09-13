@@ -148,5 +148,4 @@ positions. If <code>last</code> doesn't, the instruction isn't reaching the
 model at all, and everything after this point will be a seven-way guess.
 </div>
 
-Next, we'll write the head itself, which is three lines of PyTorch and one
-lesson about a diagnostic that lied to us for an afternoon.
+Next: the action head.

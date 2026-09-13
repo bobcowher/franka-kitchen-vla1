@@ -292,6 +292,5 @@ have run to completion on transposed pixels and produced a quietly worse policy
 with nothing anywhere reporting a problem.
 </div>
 
-Next, we'll look at the dataset, which needed one line changed for the same
-reason, and which contains two facts about the demonstrations that will change
-the loss function we write in Chapter 10.
+Next: the dataset, one more line to change, and two facts in the data that
+change the loss function.

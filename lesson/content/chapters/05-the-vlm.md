@@ -176,6 +176,5 @@ reason is worth working out before Chapter 9, where we profile the training step
 and find the bottleneck somewhere else entirely.</p>
 </div>
 
-Next, we'll build the prompts. There are only seven instructions and they never
-change, which lets us tokenize once at construction, but it also introduces a
-padding problem that has no loud failure mode.
+Next: the prompts — seven instructions, tokenized once, and a padding problem
+that never raises an exception.

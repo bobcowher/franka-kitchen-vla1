@@ -13,16 +13,9 @@ someone else has already built. In this guide we're going to go the other way:
 we'll take a small pretrained vision-language model, freeze every weight in it,
 and write the piece that turns its output into joint velocity ourselves.
 
-That piece is small enough to read in one sitting, which is rather the point. By
-the end you'll have a policy that drives a simulated Franka arm around a
-kitchen, and you'll know why every line of it is there.
-
-If you've trained a convolutional policy before but never put a language model
-in the loop, this is the part that will feel unfamiliar, and it's worth saying
-up front that it felt unfamiliar to us too. Several of the things we tried first
-were wrong in ways that took hours to notice. Those attempts are kept in the
-guide rather than tidied away, because the reasons they were wrong are more
-useful than the code that eventually worked.
+That piece is small enough to read in one sitting. By the end you'll have a
+policy that drives a simulated Franka arm around a kitchen, and you'll know why
+every line of it is there.
 
 ## Where this starts
 

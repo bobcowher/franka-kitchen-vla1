@@ -39,18 +39,15 @@ head parameters  21,129
 ```
 </div>
 
-Most of the rest of this chapter is about why those two `LayerNorm`s are there,
-because the first version didn't have them and it didn't work.
+The `LayerNorm`s are not optional. Here's why.
 
-## A diagnostic that lied to us
+## Measuring what the head actually sees
 
-Before training anything, we wanted to answer a basic question: does the hidden
-state actually change when the image changes? If ten different frames produce
-the same vector, the head has nothing to read and no amount of training will
-rescue it.
+The first question to answer: does the hidden state actually change when the
+image changes? If ten different frames produce the same vector, the head has
+nothing to read.
 
-The obvious check is cosine similarity between hidden states from different
-frames. Let's run it on ten frames:
+Cosine similarity is the obvious check. On ten frames from the same episode:
 
 <div class="output"><p class="output-label">This prints</p>
 
@@ -60,8 +57,7 @@ cosine similarity    min 0.9978  max 0.9996
 </div>
 
 That looks like total failure. Ten genuinely different pictures, and the model's
-output barely moves. We spent an afternoon on that reading before working out
-that the instrument was broken rather than the model.
+output barely moves. The instrument is broken, not the model.
 
 Here's what's going on. Let's look at the mean hidden state across those ten
 frames, dimension by dimension:
@@ -121,7 +117,7 @@ directions that carry information is scaled by their tiny magnitude relative to
 that enormous constant. The symptom is that overfitting ten samples, which ought
 to be trivial, stalls instead.
 
-Here is what we measured trying exactly that:
+Here is what a bare `Linear` head scores against the normed version:
 
 | head | lr | loss after 400 steps |
 |---|---|---|
@@ -134,10 +130,10 @@ Here is what we measured trying exactly that:
 `LayerNorm` centres and rescales each sample, which puts the 5% that varies on
 equal footing with the 95% that never does.
 
-We use **two norms rather than one** because the two streams genuinely differ in
-scale. Averaging 64 image vectors washes out much of the outlier structure that
-the single last token still carries at full strength, so one shared norm would
-have to compromise between them.
+**Two norms rather than one** because the two streams genuinely differ in scale.
+Averaging 64 image vectors washes out much of the outlier structure that the
+single last token still carries at full strength, so one shared norm would have
+to compromise between them.
 
 ## Why there's no tanh
 
@@ -168,6 +164,4 @@ directly rather than taking our word for it, and you'll recognize it instantly
 the next time a similarity metric reads 0.99 on a model that's working fine.</p>
 </div>
 
-Next, we'll put every piece from the last four chapters into one file, and find
-out that the thing slowing our training down isn't the 460-million-parameter
-model at all.
+Next: assembling the model.

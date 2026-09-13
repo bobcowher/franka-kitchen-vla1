@@ -182,6 +182,4 @@ run it once more. Watching which questions still pass is a good lesson in what a
 passing test does and does not cover.</p>
 </div>
 
-Next, we'll build the tool we spent most of our time in: a way to test
-head ideas in seconds instead of hours, made possible by the backbone being
-frozen.
+Next: a way to test head variants in seconds rather than hours.

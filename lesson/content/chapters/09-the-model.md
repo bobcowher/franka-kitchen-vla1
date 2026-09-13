@@ -6,28 +6,23 @@ weight: 9
 standfirst: "Every piece from Chapters 5 to 8 in one file, plus the discovery that our 460M-parameter model was never the slow part."
 ---
 
-We have all the pieces now, so let's put them in one file. There's one thing
-still missing, and finding it is the most useful hour in this chapter.
+All the pieces are written. Before assembling them, profile a training step —
+because the number that will slow you down is not the 460-million-parameter
+forward pass.
 
-## The bottleneck is not where you expect
-
-The obvious worry about running a 460-million-parameter model inside the
-training loop is that the forward pass will be too slow to iterate on. So before
-committing to the design, we profiled a single training step at batch 64.
+## The preprocessing bottleneck
 
 | path, batch 64 | processor | gpu | total | rate |
 |---|---|---|---|---|
 | `processor(...)` | 827 ms | 140 ms | 968 ms | 1.0 it/s |
 | **gpu preprocessing** | — | 144 ms | 144 ms | **7.0 it/s** |
 
-The model was never the problem. **Eighty-five percent of every step** was
-CPU-side image preprocessing inside the HuggingFace processor, resizing and
-normalizing 64 frames one at a time while a perfectly good GPU sat waiting.
+**Eighty-five percent of every step** is CPU-side image preprocessing inside
+the HuggingFace processor, resizing and normalizing 64 frames one at a time
+while the GPU sits waiting.
 
-So we read the image processor's configuration to see what it actually does to
-an image, and the entire branch turns out to be three operations: resize to 512,
-divide by 255, then subtract 0.5 and divide by 0.5. Nothing else. All three are
-trivial on a GPU.
+The processor's image branch is three operations: resize to 512, divide by 255,
+subtract 0.5 and divide by 0.5. Nothing else. All three are trivial on a GPU.
 
 <p class="listing">Listing 9.1 <em>The processor's image branch, reimplemented on the GPU</em></p>
 <p class="filename">Filename: <strong>model.py</strong></p>
@@ -64,8 +59,7 @@ rollout observation through without a batch dimension. The cast to bfloat16
 matches the backbone. And the final `unsqueeze(1)` adds the sub-image axis
 SmolVLM2 expects, which is 1 now that we turned splitting off.
 
-A sevenfold speedup from deleting a library call. The instinct had been to
-reach for a smaller model, and the fix never touched the model at all.
+A sevenfold speedup from deleting a library call.
 
 <div class="trap">
 <span class="note-label">Trap · one preprocessing path, not two</span>
@@ -174,5 +168,4 @@ constant, and working out why tells you something about which of the two is
 bound by what.</p>
 </div>
 
-Next, we'll write the training loop, which is ordinary behavior cloning with one
-weighted term that comes straight out of the statistics in Chapter 4.
+Next: the training loop.

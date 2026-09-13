@@ -6,11 +6,9 @@ weight: 12
 standfirst: "The frozen model's output never changes. That turns a three-hour experiment into a sixty-second one."
 ---
 
-This is the tool we spent most of our time in, and it exists because of one
-property of the design: the backbone is frozen, so its output for a given
-(frame, instruction) pair is a constant. Encode a sample of the dataset once,
-keep the vectors, and every question about the *head* can be answered without
-ever running the backbone again.
+The backbone is frozen, so its output for a given (frame, instruction) pair
+never changes. Encode a sample of the dataset once, keep the vectors, and every
+question about the *head* can be answered without running the backbone again.
 
 ```text
 python scripts/probe.py --encode    # ~60s, writes checkpoints/probe_encodings.pt
@@ -202,6 +200,4 @@ than the gap between "fused" and "pooled only"?</p>
 you trust any head result in your own work.</p>
 </div>
 
-Next, we'll run the policy in the environment, which is where the real objective
-lives. It is also where we made the same mistake as this chapter's, two orders
-of magnitude more expensively.
+Next: running the policy in the environment.

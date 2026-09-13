@@ -10,10 +10,6 @@ Training loss is not the objective. The objective is whether the arm opens the
 cabinet. So every 2,500 epochs our training loop stops and runs rollouts: three
 tasks, three attempts each.
 
-This chapter is the longest in the guide and the one we'd most want you to read,
-because everything in it is a mistake we made rather than a technique we're
-recommending.
-
 <p class="filename">Filename: <strong>agent.py</strong></p>
 
 ```python
@@ -44,13 +40,10 @@ Epoch: 2500 Loss: 0.07731256633996964
 ```
 </div>
 
-Three rollouts per task was a deliberate and, at the time, correct decision.
-Rollouts are slow, early iteration matters more than precision, and any success
-above zero was the win condition for our first milestone. It was right on day
-one.
-
-It stopped being right somewhere in the following week, and nothing announced
-the transition.
+Three rollouts per task is the right call early: rollouts are slow, precision
+matters less than iteration speed at the start, and any success above zero tells
+you the policy is moving. The problem is that nothing tells you when it stops
+being enough.
 
 ## The arithmetic nobody ran
 
@@ -223,5 +216,4 @@ is all you need to answer it.</p>
 chapter is the result.</p>
 </div>
 
-Next, we'll collect the traps from across the whole build in one place, because
-five of the six turn out to be the same mistake wearing different clothes.
+Next: six traps from across the build, and the shape they share.

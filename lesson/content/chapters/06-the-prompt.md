@@ -29,10 +29,9 @@ TASK_DESCRIPTIONS = list(TASKS.values())
 _TASK_INDEX = {description: i for i, description in enumerate(TASK_DESCRIPTIONS)}
 ```
 
-That comment earns its place. A task's identity through the whole system is its
-position in this dictionary, so reordering it makes every existing checkpoint map
-"open the microwave" onto weights learned for a different task, and nothing
-anywhere will raise.
+A task's identity through the whole system is its position in this dictionary.
+Reorder it and every existing checkpoint maps "open the microwave" onto weights
+learned for a different task, with nothing anywhere raising.
 
 ## Tokenizing all seven at once
 
@@ -131,9 +130,9 @@ they're derived from the tokenizer rather than learned.
 
 ## Finding the image tokens
 
-Chapter 7 will want to read the image positions as well, so we need to know
-where they are. The processor expands our single `<image>` placeholder into a
-run of real image tokens, all sharing one id:
+The readout in the next chapter reads the image positions too. The processor
+expands our single `<image>` placeholder into a run of real image tokens, all
+sharing one id:
 
 <p class="filename">Filename: <strong>model.py</strong></p>
 
@@ -175,5 +174,5 @@ won't, and the size of that difference is what a silent bug looks like when you
 finally measure it.</p>
 </div>
 
-Next, we'll decide which positions the head should actually read, and it turns
-out the ordering of image and text in this prompt forces the answer.
+Next: which positions the head reads, and why the prompt ordering forces the
+answer.

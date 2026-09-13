@@ -183,5 +183,5 @@ tasks the policy never once succeeds at, and this is one of the candidate
 explanations we never ruled out.</p>
 </div>
 
-Next, we'll start on the part that's genuinely ours to write, beginning with
-loading the vision-language model and making it fourteen times cheaper to run.
+Next: loading the vision-language model, and making it fourteen times cheaper to
+run with a single line of configuration.
