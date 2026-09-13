@@ -27,16 +27,78 @@ useful than the code that eventually worked.
 ## Where this starts
 
 This isn't a from-scratch project, and you should know that before you plan your
-afternoon. The repository began as a copy of a working
-behavior-cloning setup for the same environment: a convolutional policy, the
-Franka Kitchen wrappers, a demonstration collector driven by a gamepad, and a
-dataset loader. All of that existed and worked before any of this started.
+afternoon. The repository began as a copy of a working behavior-cloning setup for
+the same environment: a convolutional policy, the Franka Kitchen wrappers, a
+demonstration collector driven by a gamepad, and a dataset loader. All of that
+existed and worked before any of this started.
 
-What we're doing is a conversion. We take that project and replace its
-perception and policy with a frozen vision-language model and a head we write.
-Here is the honest accounting of what that touched:
+### Getting the exact starting point
 
-| file | what happened to it |
+Everything in this guide is written against one specific commit of that project.
+Later commits may exist by the time you read this, so clone the pin rather than
+the branch:
+
+```bash
+git clone git@github.com:bobcowher/franka-kitchen-bc.git franka-kitchen-vla
+cd franka-kitchen-vla
+git checkout 0525d80f55abeb5e6e79ee7cf548f62bc29961f6
+```
+
+That commit is:
+
+<div class="output"><p class="output-label"><code>git log -1</code></p>
+
+```text
+commit 0525d80f55abeb5e6e79ee7cf548f62bc29961f6
+Author: Robert Cowher
+Date:   2026-09-06 18:09:15 -0500
+
+    10000 epochs
+```
+</div>
+
+The commit subject is a slightly unhelpful `10000 epochs`, so verify by content
+rather than by message. Git names a tree by the hash of everything in it, which
+means one command confirms you have byte-identical files:
+
+```bash
+git rev-parse HEAD^{tree}
+```
+
+<div class="output"><p class="output-label">This must print</p>
+
+```text
+64fadc1369012053b4fec50e2cd168f40df21974
+```
+</div>
+
+If that hash matches, every file this guide treats as inherited is exactly the
+file it was written against. If it doesn't, you are on a different snapshot and
+the line numbers and listings in Chapters 3 and 4 may not line up.
+
+### Before you change anything
+
+Point `dataset` at your demonstrations and confirm git is ignoring it:
+
+```bash
+ln -s /data/datasets/franka-kitchen-bc dataset
+git status --porcelain          # should print nothing
+git check-ignore -v dataset     # .gitignore:5:dataset*   dataset
+```
+
+The `.gitignore` you cloned carries both `dataset/` and `dataset*`, and it is the
+second one that saves you. A trailing slash matches directories only, so a
+`dataset/` pattern on its own will let git stage a symlink pointing at tens of
+gigabytes of demonstrations. If you rewrite that file later, keep a pattern
+without the slash.
+
+Then run `./build.sh` once and confirm the existing behavior-cloning project
+trains before you touch anything. A broken environment discovered in Chapter 9 is
+very hard to tell apart from a broken model.
+
+### What the conversion touches
+
+| file | what happens to it |
 |---|---|
 | `model.py` | rewritten completely |
 | `agent.py` | substantially rewritten |
@@ -49,13 +111,17 @@ Here is the honest accounting of what that touched:
 
 Those three lines are all the same change, and Chapters 3 and 4 explain it: the
 conv policy wanted its frames in channels-first order, and the VLA wants them
-channels-last. One `transpose` comes out of the dataset, another comes out of
-the environment wrapper, and a `Box` shape is rewritten to match.
+channels-last. One `transpose` comes out of the dataset, another comes out of the
+environment wrapper, and a `Box` shape is rewritten to match.
+
+You will land on a `model.py` holding 125 lines of convolutional stack. Chapter 5
+replaces it wholesale, so don't read it first and try to preserve its structure;
+it is the thing being removed.
 
 If you're following along without a behavior-cloning project of your own, read
-Chapters 3 and 4 as a description of the ground you need to be standing on
-rather than as code to type. They're there because you cannot understand the
-pieces that follow without knowing exactly what an observation is and where the
+Chapters 3 and 4 as a description of the ground you need to be standing on rather
+than as code to type. They're there because you cannot understand the pieces that
+follow without knowing exactly what an observation is and where the
 demonstrations come from, not because converting them is any of the work.
 
 ## The finished shape
