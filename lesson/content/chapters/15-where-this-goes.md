@@ -102,6 +102,29 @@ that this also invalidates the probe cache from
 [Chapter 12]({{< relref "chapters/12-the-fast-loop" >}}), and changes checkpoints from 85 KB to
 37 MB.
 
+<div class="note">
+<span class="note-label">Status: measured, and it did not answer the question</span>
+<p>Run 10 trained two unfrozen layers for 20,000 epochs against the frozen
+control, then both arms were re-rolled offline at 50 rollouts per task. Pooled
+over the epochs where both arms completed:</p>
+<pre><code>frozen       12/300    4.0%  [2.3%, 6.9%]
+unfrozen2    15/300    5.0%  [3.1%, 8.1%]</code></pre>
+<p>Overlapping intervals. No advantage to unfreezing at this budget.</p>
+<p>Check the scale before concluding anything from that. The frozen arm reaches
+<strong>61%</strong> at epoch 40,000, and this comparison has it at 4%. Both
+arms were measured deep inside their own pre-convergence noise floor, because
+the A/B was capped at 20,000 epochs — a number chosen to match how long run 10
+had trained, not from anything about where the frozen baseline becomes useful.
+<strong>The experiment was designed against the wrong budget.</strong> Testing
+this hypothesis honestly means running the unfrozen arm to 40–45K and comparing
+peaks, which is a fresh run rather than a re-read of this one.</p>
+<p>Notice the shape. This is
+<a href="{{< relref "chapters/13-rollouts" >}}">Chapter 13</a>'s mistake in
+different clothes: the sample size was right this time and the <em>sampling
+window</em> was wrong instead. Enough rollouts at the wrong epochs still
+measures nothing.</p>
+</div>
+
 ### 2 · Diagnose the dead tasks
 
 Three tasks at flat zero is not a gradual capability limit, it is something
