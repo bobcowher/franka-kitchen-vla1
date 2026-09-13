@@ -3,57 +3,62 @@ title: "The environment"
 part: "Part II · The pieces"
 chapter: 3
 weight: 3
-standfirst: "What one observation is, and three wrappers that make the arm behave."
+standfirst: "What one observation is, three wrappers that make the arm behave, and the two lines the VLA changes."
 ---
 
-Almost everything in this chapter came over from the behavior-cloning project
-unchanged. We're reading it rather than writing it, because you cannot reason
-about the chapters that follow without knowing exactly what one observation is
-and what the environment does with the numbers you send back.
-
-There is one change the VLA needs, and it's two lines. We'll get to it at the
-end.
+Almost everything in this chapter arrived from the behavior-cloning project
+unchanged, so we're going to read it rather than write it. It's here because you
+can't reason about the readout in Chapter 7 without knowing exactly what one
+observation contains, and because one of these wrappers is where the VLA's only
+environment change lands.
 
 ## What the environment gives you
 
-Franka Kitchen is a MuJoCo simulation: a 7-joint Franka arm with a 2-finger
-gripper, in a kitchen with a microwave, a kettle, two cabinets, a light switch
-and four burner knobs.
+Franka Kitchen is a MuJoCo simulation of a 7-joint Franka arm with a two-finger
+gripper, standing in a kitchen with a microwave, a kettle, two cabinets, a light
+switch and four burner knobs. Let's make one and look at what comes back:
 
 ```python
 env = gym.make("FrankaKitchen-v1", max_episode_steps=400,
                tasks_to_complete=["hinge cabinet"], render_mode="rgb_array")
+obs, _ = env.reset()
+print("keys              :", list(obs.keys()))
+print("observation shape :", obs["observation"].shape)
+print("action space      :", env.action_space)
 ```
 
-The raw observation is a flat vector mixing joint state, object poses, and
-goal information. You do not want most of it. A VLA reads the scene from
-pixels and the goal from language, so object poses and goal vectors are
-redundant by construction.
+<div class="output"><p class="output-label">This prints</p>
 
-**The action space is nine numbers in `[−1, 1]`.** Seven arm joint velocities
-and two gripper commands. This matters more than it looks, and it is worth
-reading the environment source to confirm rather than assuming: the
-environment integrates your action into a position setpoint itself. You are
-already in a normalized velocity space.
-
-<div class="checkpoint">
-<span class="note-label">Why this decision comes first</span>
-Most VLA pipelines quantile-normalize the action space. Here that would be a
-second normalization on top of one the environment already did. Five minutes
-reading <code>kitchen_env.py</code> removed a component from the design. Read
-your environment's contract before designing around it.
+```text
+keys              : ['observation', 'achieved_goal', 'desired_goal']
+observation shape : (59,)
+action space      : Box(-1.0, 1.0, (9,), float64)
+```
 </div>
+
+That 59-element vector mixes joint state with the poses of every object in the
+kitchen, and the two goal entries describe what counts as success. A VLA reads
+the scene from pixels and the goal from language, so almost none of it is useful
+to us, and Chapter 2 already explained why the `[−1, 1]` action space means we
+add no normalization.
+
+One detail in those goal vectors matters later: their width changes with
+the task, giving observations of 61, 63 or 73 elements depending on what you
+asked for. That was the only thing stopping demonstrations of different tasks
+being mixed in one buffer, which matters in the next chapter.
 
 ## Wrapper one: stop the arm sagging
 
-The first problem has nothing to do with learning. Send zero action for 200
-steps and the arm droops about 61 degrees.
+The first problem has nothing to do with learning. Send zero action for two
+hundred steps and the arm droops about 61 degrees.
 
-The environment integrates each action onto the *measured* joint position
-every step. Gravity pulls each joint slightly below its commanded setpoint,
-that droop is read back in, and the next setpoint starts from the drooped
-position. The arm ratchets downward.
+The cause is a feedback loop. The environment integrates your action onto the
+*measured* joint position each step, gravity pulls each joint slightly below the
+setpoint it was given, that droop gets read back in, and the next setpoint starts
+from the drooped position. The arm ratchets downward a fraction of a degree at a
+time.
 
+<p class="listing">Listing 3.1 <em>Holding the commanded setpoint instead of the measured position</em></p>
 <p class="filename">Filename: <strong>gym_robotics_custom.py</strong></p>
 
 ```python
@@ -75,18 +80,20 @@ class HeldSetpointWrapper(Wrapper):
         return result
 ```
 
-Holding the setpoint you commanded turns 61 degrees of drift into about 1
-degree of offset, which is what a position servo should do.
+Holding the setpoint we actually commanded turns 61 degrees of drift into about
+one degree of offset, which is what a position servo is supposed to do.
 
-`max_lead` caps how far the setpoint may run ahead of the arm. Without it the
-setpoint outruns the joints during a fast move and they coast for about 20
-steps after you release the stick. It has to stay above the servo's own
-steady-state droop of roughly 0.02 radians, or the clamp re-anchors to
-measured position and the sag returns. At 0.05: sag 1.4 degrees, coast 2.9
-degrees.
+`max_lead` caps how far the setpoint may run ahead of where the arm really is.
+Without it the setpoint outruns the joints during a fast move and they keep
+coasting for about twenty steps after you let go of the stick. It has to stay
+above the servo's own steady-state droop of roughly 0.02 radians, or the clamp
+re-anchors to the measured position and the sag comes straight back. At 0.05 we
+measured 1.4 degrees of sag and 2.9 degrees of coast, which is the best
+compromise we found.
 
-## Wrapper two: build the observation you want
+## Wrapper two: build the observation we want
 
+<p class="listing">Listing 3.2 <em>A camera view plus proprioception</em></p>
 <p class="filename">Filename: <strong>gym_robotics_custom.py</strong></p>
 
 ```python
@@ -102,29 +109,26 @@ class VLAObservationWrapper(ObservationWrapper):
         }
 ```
 
-Three keys. The camera view is the free camera from the environment's default
-config — the same view a human demonstrator sees, so demonstrator and policy
-look at the same thing.
-
-Object poses and goal vectors are dropped. They were the only reason
-observation width varied by task (61, 63 or 73 depending on the task), which
-made it impossible to mix demonstrations from different tasks in one buffer.
+Three keys, and the object poses and goal vectors are gone. The camera is the
+environment's free camera, which is the same view a human demonstrator sees, so
+the policy and the person who taught it are looking at the same picture.
 
 <div class="note">
 <span class="note-label">Note</span>
-<code>joint_pos</code> and <code>joint_vel</code> are carried through the
-observation but are <strong>not fed to the model</strong> in this build.
-<a href="{{< relref "chapters/15-where-this-goes" >}}">Chapter 15</a> explains why that omission is
-deliberate, and when to reverse it.
+<code>joint_pos</code> and <code>joint_vel</code> travel through the observation
+but are <strong>never fed to the model</strong> in this build. That omission is
+deliberate and Chapter 11 explains what it buys us, with Chapter 15 covering
+when to reverse it.
 </div>
 
 ## Wrapper three: match the training resolution
 
-Frames are archived at 896 pixels so recorded demonstrations stay useful to a
-model that wants more pixels later. Training reduces them to 448 on load. The
-live environment has to apply the identical reduction, or a rollout sees
-something slightly different from what training saw.
+Frames are archived at 896 pixels so that recorded demonstrations stay useful to
+a model that wants more pixels than ours does. Training reduces them to 448 as
+they load, and the live environment has to apply exactly the same reduction, or
+a rollout sees something subtly different from what training saw.
 
+<p class="listing">Listing 3.3 <em>Reducing a live observation the way the loader reduces a shard</em></p>
 <p class="filename">Filename: <strong>gym_robotics_custom.py</strong></p>
 
 ```python
@@ -151,20 +155,11 @@ class ObsReshapeWrapper(ObservationWrapper):
         }
 ```
 
-**Frames come out HWC** — height, width, channels. The dataset uses that same
-order.
+## Putting them together
 
-This is the one place in the whole environment layer that the VLA changed. The
-conv policy wanted channels-first, so the wrapper used to end with
-`reduced.transpose(2, 0, 1)` and declare its `Box` as
-`(3, image_size, image_size)`. Our model permutes to channels-first on the GPU
-inside `preprocess`, which Chapter 9 covers, so a transpose here would only be
-undone a moment later. Two lines: drop the transpose, and rewrite the `Box`
-shape. Keeping both sides identical is the entire job of this wrapper,
-and [Chapter 14]({{< relref "chapters/14-traps" >}}) covers what happened the one time they
-disagreed.
-
-## Assembling them
+Order matters here. `ObsReshapeWrapper` goes outermost so that it reshapes
+whatever the layer beneath it produced, which means anything wanting
+full-resolution frames, like recording or debugging, sits below it.
 
 <p class="filename">Filename: <strong>agent.py</strong></p>
 
@@ -177,9 +172,51 @@ def _make_env(self, task, render_mode):
     return ObsReshapeWrapper(env, image_size=self.image_size)
 ```
 
-Order matters. `ObsReshapeWrapper` is outermost so it reshapes whatever the
-layer below produced. Anything that wants full-resolution frames — recording,
-debugging — goes below it.
+Let's see what one observation looks like once all three are on:
 
-`max_episode_steps` is 400. The longest human demonstration on file is 314
-steps, so a policy still going at 400 has failed.
+<div class="output"><p class="output-label">Printing each key's shape and dtype gives</p>
+
+```text
+camera_scene   (448, 448, 3)  uint8
+joint_pos      (9,)  float32
+joint_vel      (9,)  float32
+camera_scene range   : 0 - 255
+```
+</div>
+
+`max_episode_steps` is 400 because the longest human demonstration on file runs
+to 314 steps, so a policy still going at 400 has failed by any reasonable
+reading.
+
+## The two lines the VLA changed
+
+Everything above arrived working. Here is the entire environment-side difference
+between the convolutional policy and ours.
+
+`ObsReshapeWrapper` used to finish by transposing to channels-first and declaring
+its space to match, because that is what `Conv2d` consumes:
+
+```python
+reduced = frames.resize(observation["camera_scene"], self.image_size)
+return {**observation, "camera_scene": reduced.transpose(2, 0, 1)}
+# and:  spaces.Box(0, 255, (3, image_size, image_size), np.uint8)
+```
+
+Our model permutes to channels-first on the GPU inside `preprocess`, which
+Chapter 9 covers, so a transpose here would only be undone a moment later. Drop
+it, and rewrite the `Box` shape to `(image_size, image_size, 3)`. That's it.
+
+<div class="trap">
+<span class="note-label">Trap · both sides of the line must agree</span>
+What actually matters is not which order you pick but that the dataset and the
+environment pick the same one. They disagreed exactly once, when
+<code>sample_batch</code> dropped its transpose and this wrapper did not, and the
+rollout died with <code>expected input to have 3 channels, but got 448</code>.
+That was the lucky outcome. Had the numbers happened to line up, training would
+have run to completion on transposed pixels and produced a quietly worse policy
+with nothing anywhere reporting a problem.
+</div>
+
+Next, we'll look at the dataset, which needed one line changed for the same
+reason, and which contains two facts about the demonstrations that will change
+the loss function we write in Chapter 10.

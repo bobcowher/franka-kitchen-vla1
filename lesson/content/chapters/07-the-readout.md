@@ -3,82 +3,114 @@ title: "The readout"
 part: "Part II · The pieces"
 chapter: 7
 weight: 7
-standfirst: "Which hidden states the head looks at is an architecture decision. Causal attention forces the answer."
+standfirst: "Which hidden states the head reads is an architecture decision, and causal attention forces the answer."
 ---
 
-The VLM returns one 960-dimensional vector per input position, 79 to 84 of
-them. This is the <em class="term">prefix</em>: the model's representation of
-everything you handed it, before any generation would begin.
+The backbone hands us one 960-number vector per input position, so between 79
+and 84 of them. We'll call that whole collection the *prefix*: the model's
+representation of everything we gave it, sitting where generation would begin if
+we were asking for text.
 
-Your head needs a fixed-size input. Which positions do you read?
-
-Three candidates:
+Our head needs a fixed-size input, so we have to choose which positions to read.
+There are three obvious candidates:
 
 1. The last token, which has attended to everything before it.
-2. The mean of the image tokens, which hold the visual content.
+2. The mean of the 64 image tokens, which hold the visual content.
 3. Both.
 
-## The argument from causal attention
+## What the token order forces
 
-Look at the order the chat template produces. Image first, then text:
+Let's look again at how the chat template arranged things. The image comes
+first, then the instruction:
 
 <div class="tokens">
   <span class="tok-img">64 image tokens</span>
   <span class="tok-txt">instruction</span>
   <span class="tok-read">last</span>
 </div>
-<p class="caption">Attention runs left to right. Each position sees only what precedes it.</p>
+<p class="caption">Attention runs left to right, so each position sees only what precedes it.</p>
 
-<div class="finding">
-<span class="note-label">Consequence</span>
-<p><strong>The image tokens cannot see the instruction.</strong> They come
-first, and attention is causal. Pooling them gives a representation of the
-scene that is identical for all seven tasks — task-blind by construction.</p>
-<p><strong>The last token can see everything</strong>, but it is one vector
-summarizing 64 image positions through a bottleneck the model was pretrained to
-use for predicting the next word, not for describing geometry.</p>
+If attention is causal and the image comes before the text, then the image
+positions cannot possibly have seen the instruction. Pooling them should give us
+a representation of the scene that is *identical* regardless of which task we
+asked for.
+
+That's a strong claim, and it's cheap to check. Let's run the same frame through
+with two different task ids and compare both readouts:
+
+```python
+frame = np.random.randint(0, 255, (1, 448, 448, 3), dtype=np.uint8)
+for t in (3, 6):                      # microwave, hinge cabinet
+    task = torch.tensor([t]).cuda()
+    out = model.vlm(input_ids=model.prompt_ids[task],
+                    attention_mask=model.prompt_mask[task],
+                    pixel_values=model.preprocess(frame)).last_hidden_state.float()
+    last = out[torch.arange(1).cuda(), model.prompt_end[task]]
+    mask = model.image_positions[task]
+    pooled = (out * mask).sum(1) / mask.sum(1)
+```
+
+<div class="output"><p class="output-label">Comparing the two runs prints</p>
+
+```text
+pooled max abs difference  0.000000
+last   max abs difference  5.3125
+```
 </div>
 
-So these are not two views of the same information. One is language-aware and
-visually compressed. The other is visually detailed and language-blind. Reading
-both is the only option that has all of it.
+Exactly zero. Not approximately zero, not small: the pooled image representation
+is bit-identical for two different instructions, because those 64 positions were
+computed before the model had read a single word of the task. The last token,
+meanwhile, differs by 5.31.
 
-## What the measurement says
+So our two candidates are not two views of the same information. One is
+visually detailed and completely task-blind. The other is task-aware but has
+squeezed 64 image positions through a single vector that the model was
+pretrained to use for guessing the next word, not for describing geometry.
+Reading both is the only option that has all of it.
 
-Reasoning is cheap. Measure it. Because the VLM is frozen you can encode a
-sample once and fit head variants on the cached vectors in seconds; that
-harness is [Chapter 12]({{< relref "chapters/12-the-fast-loop" >}}).
+## Checking the argument against a measurement
 
-Numbers below are mean squared error on <em class="term">held-out</em> data —
-episodes the head never trained on. Predicting the dataset mean scores 0.2132,
-so that is the number to beat. Five random seeds per variant.
+Reasoning is cheap and can be wrong, so let's put numbers on it. Because the
+backbone is frozen we can encode a sample once and then fit head variants on the
+cached vectors in seconds; Chapter 12 builds that harness.
 
-| head | params | mean | best | worst |
-|---|---|---|---|---|
-| last token only | 10,569 | 0.1090 | 0.1025 | 0.1148 |
-| pooled image only | 10,569 | 0.0972 | 0.0930 | 0.1030 |
-| **fused (shipped)** | **21,129** | **0.0905** | **0.0885** | **0.0934** |
-| fused → 512 → 9 | 992,009 | 0.1519 | 0.1057 | 0.2133 |
+The numbers below are mean squared error on *held-out* data, meaning episodes
+the head never trained on. Predicting the dataset mean scores 0.2132, so that's
+the number to beat, and each variant is fitted from five different random seeds.
 
-Three things fall out.
+<div class="output"><p class="output-label"><code>python scripts/probe.py</code> prints</p>
 
-**The architectural argument holds.** Fusing beats either stream alone, and has
-the tightest spread across seeds. It is the most stable choice as well as the
-best.
+```text
+head                              params     mean     best    worst
+last only                         10,569   0.1090   0.1025   0.1148
+pooled only                       10,569   0.0972   0.0930   0.1030
+fused                             21,129   0.0905   0.0885   0.0934
+fused -> 512 -> 9                992,009   0.1519   0.1057   0.2133
+```
+</div>
 
-**Pooled beats last, on its own.** Mildly surprising, since pooled is
-task-blind. It says visual detail is worth more than language conditioning on
-this dataset, which is a comment on the dataset — seven visually distinct
-tasks — more than on the method.
+Three things come out of that table.
 
-**Capacity is not the bottleneck.** A head with 47× more parameters is worse,
-and unstable enough that its worst seed lands exactly on the
-predict-the-mean baseline, meaning it sometimes learns nothing. The frozen
-prefix is the ceiling, and no head makes it higher. That single row is why the
-next lever in this project is unfreezing rather than a bigger head.
+**The architectural argument holds.** Fusing beats either stream on its own, and
+it also has the tightest spread across seeds, so it's the most stable choice as
+well as the best one.
 
-## The code
+**Pooled beats last on its own**, which is mildly surprising given that pooled is
+task-blind. It says the visual detail is worth more than the language
+conditioning on this particular dataset, which is a comment on our seven
+visually distinct tasks rather than on the method.
 
+**Capacity is not what's holding us back.** The head with 47 times more
+parameters is *worse*, and unstable enough that its worst seed lands exactly on
+the predict-the-mean baseline, meaning that on that seed it learned nothing at
+all. The frozen prefix is the ceiling here, and no amount of head raises it.
+That single row is the reason Chapter 15 reaches for unfreezing rather than for
+a bigger head.
+
+## Writing it
+
+<p class="listing">Listing 7.1 <em>Reading both streams out of the prefix</em></p>
 <p class="filename">Filename: <strong>model.py</strong></p>
 
 ```python
@@ -98,20 +130,23 @@ def forward(self, frames, task):
     return self.head(last, pooled)
 ```
 
-`.float()` converts out of bfloat16, so the head trains in full precision.
+`.float()` brings us out of bfloat16 so the head trains in full precision. The
+gather on `last` uses `torch.arange` for the batch index and `prompt_end` for the
+position, picking one token per row at a different offset in each.
 
-The gather on `last` uses `torch.arange` for the batch index and `prompt_end`
-for the position index, picking one token per row at a different offset in each.
-
-The masked mean is written out rather than pulled from a helper because two
-things are easy to get subtly wrong and neither raises: the mask has to
-broadcast over the feature dimension, and the denominator has to be the token
-count, not the element count.
+The masked mean is written out longhand rather than pulled from a helper because
+two things are easy to get subtly wrong and neither of them raises: the mask has
+to broadcast across the feature dimension, and the denominator has to be the
+number of image *tokens*, not the number of elements.
 
 <div class="checkpoint">
 <span class="note-label">Check before you continue</span>
-Feed the same frame with two different task ids. <code>pooled</code> should be
-identical for both, and <code>last</code> should differ. If <code>pooled</code>
-differs you have the token order wrong; if <code>last</code> does not, the
-instruction is not reaching the model.
+Run the comparison from earlier in this chapter on your own model. You want
+<code>pooled</code> identical across two task ids and <code>last</code> clearly
+different. If <code>pooled</code> differs, your image mask is picking up text
+positions. If <code>last</code> doesn't, the instruction isn't reaching the
+model at all, and everything after this point will be a seven-way guess.
 </div>
+
+Next, we'll write the head itself, which is three lines of PyTorch and one
+lesson about a diagnostic that lied to us for an afternoon.

@@ -6,22 +6,40 @@ weight: 12
 standfirst: "The frozen model's output never changes. That turns a three-hour experiment into a sixty-second one."
 ---
 
-Because the VLM is frozen, its output for a given (frame, instruction) pair is
-a constant. Encode a sample of the dataset once, keep the vectors, and every
-question about the *head* can be answered without running the VLM again.
+This is the tool we spent most of our time in, and it exists because of one
+property of the design: the backbone is frozen, so its output for a given
+(frame, instruction) pair is a constant. Encode a sample of the dataset once,
+keep the vectors, and every question about the *head* can be answered without
+ever running the backbone again.
 
 ```text
 python scripts/probe.py --encode    # ~60s, writes checkpoints/probe_encodings.pt
 python scripts/probe.py             # fits head variants in seconds
 ```
 
-Anything that changes only the head, the readout, the loss weighting or the
-normalization goes here first. The table in
-[Chapter 7]({{< relref "chapters/07-the-readout" >}}) — four architectures,
-five seeds each, twenty fits — is minutes of work. As training runs it would be
-a day.
+<div class="output"><p class="output-label">The second command prints</p>
+
+```text
+cached: 47106 train + 11640 held-out steps
+predict-the-mean, held out: 0.2132
+
+head                              params     mean     best    worst   (held out, 5 seeds)
+  last only                       10,569   0.1090   0.1025   0.1148
+  pooled only                     10,569   0.0972   0.0930   0.1030
+  fused                           21,129   0.0905   0.0885   0.0934
+  fused -> 512 -> 9              992,009   0.1519   0.1057   0.2133
+```
+</div>
+
+That table is four architectures at five seeds each, so twenty complete fits,
+and it takes a couple of minutes. As training runs it would have been a day and
+a half. Anything that changes only the head, the readout, the loss weighting or
+the normalization goes here first.
 
 ## Caching both readout streams
+
+Let's start with the encoding pass, which is the only part that touches the
+backbone.
 
 <p class="filename">Filename: <strong>scripts/probe.py</strong></p>
 
@@ -158,16 +176,32 @@ spread between seeds is wider than the gap between your variants, you have not
 measured anything — and you cannot know that from a single number.
 </div>
 
-Report the baseline alongside, or the numbers have no scale:
+Always print the baseline alongside, or the numbers have no scale:
 
 ```python
 print(f"predict-the-mean, held out: "
       f"{weighted_mse(a_train.mean(0).expand_as(a_test), a_test):.4f}")
 ```
 
-The shipped configuration survived the correction. Fused was best at 0.0905
-mean, with the tightest spread of any variant. But it survived as a measurement
-rather than as a lucky draw.
+That's the 0.2132 at the top of the output. Without it, 0.0905 is just a number;
+with it, you know the head explains a bit under 60% of the variance in the
+actions and that the gap between our best and worst variants is small compared
+to the distance either of them travelled from doing nothing.
 
-This same error is about to repeat at a much larger scale, in a place where it
-costs a whole night.
+Our shipped configuration survived the correction: fused really was best at
+0.0905, with the tightest spread of any variant. But it survived as a
+measurement rather than as a lucky draw, which is a different thing to be able
+to say.
+
+<div class="exercise">
+<h4>Exercise 12.1 &nbsp;How many seeds do you need?</h4>
+<p>Run <code>fit</code> for the fused head with 20 seeds instead of 5 and plot
+the running mean as seeds accumulate. At what point does it stop moving by more
+than the gap between "fused" and "pooled only"?</p>
+<p>That number is how many seeds this comparison requires, and you want it before
+you trust any head result in your own work.</p>
+</div>
+
+Next, we'll run the policy in the environment, which is where the real objective
+lives. It is also where we made the same mistake as this chapter's, two orders
+of magnitude more expensively.

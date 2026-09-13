@@ -6,9 +6,9 @@ weight: 14
 standfirst: "Six failures that each cost real time, and the one shape they share."
 ---
 
-Every one of these was found the expensive way. They share a shape: **the
-system reported success while doing something else**, and only an independent
-measurement caught it.
+Every one of these cost us real time, and we found all of them the expensive
+way. They're collected here because they share a shape you learn to recognize: in each case **the system reported success while doing something
+else**, and only an independent measurement caught it.
 
 ## Cosine similarity on a model with massive activations
 
@@ -108,6 +108,10 @@ one. The launch banner could not have reported the wrong GPU. Nine rollouts
 could not have separated a 35% policy from a 60% one. One seed could not have
 told you the variance exceeded the effect.
 
-The defense is not care. Before trusting a number, ask: *what reading would I
-have gotten if the thing I am testing were false?* If the answer is "the same
-one," the measurement is decoration.
+The defence isn't care, because we were being careful each time. Before
+trusting a number, ask one question: *what reading would I have gotten if the
+thing I'm testing were false?* If the answer is "the same one," the measurement
+is decoration.
+
+Next, we'll look at where the finished policy landed, what we think is holding
+it back, and four things to try in the order they become worth trying.

@@ -8,9 +8,9 @@ standfirst: "A working policy, a measured ceiling, and four levers in the order 
 
 ## Where it landed
 
-A frozen 460M-parameter vision-language model with a 21,129-parameter head,
-trained on 56,005 demonstration steps, driving a Franka arm from one camera
-frame and one English sentence.
+Let's total it up. A frozen 460M-parameter vision-language model with a
+21,129-parameter head, trained on 56,005 demonstration steps, driving a Franka
+arm from one camera frame and one English sentence.
 
 | task | success | 95% CI |
 |---|---|---|
@@ -22,9 +22,11 @@ frame and one English sentence.
 | light switch | 0% | [0.0, 7.1] |
 | microwave | ~2% | (in-loop, n≈120) |
 
-The interesting part is no longer whether it works but the shape of the
-failure. Three tasks performed, one marginal, three untouched. A uniformly
-mediocre policy would suggest a capacity problem. This does not.
+The interesting question is no longer whether it works but what shape its
+failures have. Three tasks performed, one marginal, three untouched. A uniformly
+mediocre policy across all seven would point at a capacity problem, and we'd
+know roughly what to do about it. This pattern doesn't, which is why the
+diagnosis below is a list rather than an answer.
 
 ## What the ceiling looks like
 

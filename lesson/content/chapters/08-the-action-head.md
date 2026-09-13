@@ -3,11 +3,12 @@ title: "The action head"
 part: "Part II · The pieces"
 chapter: 8
 weight: 8
-standfirst: "Two LayerNorms and a Linear. The LayerNorms are not optional, and finding out why meant throwing away the first diagnostic."
+standfirst: "Two LayerNorms and a Linear. The norms are not optional, and working out why meant throwing away our first diagnostic."
 ---
 
-Here is the entire trained component of the system.
+Here is the entire trained component of the system:
 
+<p class="listing">Listing 8.1 <em>The action head</em></p>
 <p class="filename">Filename: <strong>model.py</strong></p>
 
 ```python
@@ -25,50 +26,102 @@ class ActionHead(nn.Module):
                                    self.norm_pooled(pooled)], dim=1))
 ```
 
-The rest of this chapter is why those three lines are what they are.
+<div class="output"><p class="output-label">Printing its parameters gives</p>
 
-## The diagnostic that lied
+```text
+head parameters  21,129
+  norm_last.weight       (960,)
+  norm_last.bias         (960,)
+  norm_pooled.weight     (960,)
+  norm_pooled.bias       (960,)
+  out.weight             (9, 1920)
+  out.bias               (9,)
+```
+</div>
 
-First question, before anything else: does the image change the hidden state?
-If ten different frames produce the same vector, the head has nothing to read
-and no amount of training helps.
+Most of the rest of this chapter is about why those two `LayerNorm`s are there,
+because the first version didn't have them and it didn't work.
+
+## A diagnostic that lied to us
+
+Before training anything, we wanted to answer a basic question: does the hidden
+state actually change when the image changes? If ten different frames produce
+the same vector, the head has nothing to read and no amount of training will
+rescue it.
 
 The obvious check is cosine similarity between hidden states from different
-frames. It reads **0.993 to 0.999**.
+frames. Let's run it on ten frames:
 
-That looks like total failure. It is wrong.
+<div class="output"><p class="output-label">This prints</p>
+
+```text
+cosine similarity    min 0.9978  max 0.9996
+```
+</div>
+
+That looks like total failure. Ten genuinely different pictures, and the model's
+output barely moves. We spent an afternoon on that reading before working out
+that the instrument was broken rather than the model.
+
+Here's what's going on. Let's look at the mean hidden state across those ten
+frames, dimension by dimension:
+
+<div class="output"><p class="output-label">This prints</p>
+
+```text
+largest |mean| dim   232  value 26.5
+median |mean|        0.475
+ratio largest/median 56x
+```
+</div>
 
 <div class="trap">
 <span class="note-label">Trap · massive activations</span>
-SmolLM2's residual stream carries a few dimensions of enormous magnitude. One
-of them, dimension 232, has <code>|mean| = 34.0</code>, roughly sixty times the
-median dimension. These dominate every dot product, so cosine similarity
-between any two hidden states in this model reads ~0.99 whether or not the
-input mattered. The instrument was measuring the outliers, not the signal.
+SmolLM2's residual stream carries a handful of dimensions with enormous
+magnitude. Dimension 232 here is <strong>fifty-six times</strong> the median
+dimension, and it is the same 26.5 whatever image you show the model. Those few
+dimensions dominate every dot product, so cosine similarity between any two
+hidden states in this model reads about 0.99 whether or not the input mattered.
+We were measuring the outliers, not the signal.
 </div>
 
-Stop using an angle. Use a decomposition. Write `h = mean + deviation` across
-your samples and compare the norms:
+The fix is to stop measuring an angle and start measuring a magnitude. Split the
+hidden state into the part that's constant across samples and the part that
+varies, then compare their sizes:
 
-| varying | ‖mean‖ | ‖deviation‖ | ratio |
-|---|---|---|---|
-| ten frames, one instruction | 53.8 | 2.77 | 0.0515 |
-| one frame, seven instructions | 53.1 | 6.50 | 0.1225 |
+```python
+deviation = (h - h.mean(0)).norm(dim=1).mean()
+ratio = deviation / h.mean(0).norm()
+```
 
-Both signals are real. The instruction moves the hidden state 2.4× harder than
-the image does, so language conditioning is alive before a single gradient
-step.
+<div class="output"><p class="output-label">On real demonstration frames this gives</p>
+
+```text
+1. ten different frames, same instruction
+  hidden state: ||mean|| 53.8  ||deviation|| 2.77  ratio 0.0515
+
+2. one frame, all seven instructions
+  hidden state: ||mean|| 53.1  ||deviation|| 6.50  ratio 0.1225
+```
+</div>
+
+Both signals are real after all. And notice the second line: the instruction
+moves the hidden state 2.4 times harder than the image does, so language
+conditioning is working before we've taken a single gradient step.
 
 ## Why that ratio demands a norm
 
-0.0515 has a direct consequence. The vector your head reads is about **95% a
-fixed offset** and 5% the part that varies with the input.
+That 0.0515 has a consequence we have to design around. The vector our head
+reads is roughly **95% a fixed offset** and only 5% the part that varies with
+what the model is looking at.
 
-A bare `Linear` can represent the answer; the bias absorbs the constant. But
-gradient descent on it is miserable, because the gradient along the directions
-that carry information is scaled by their tiny magnitude relative to that
-constant. The symptom is that overfitting ten samples, which should be
-trivial, stalls.
+A bare `Linear` can represent the right answer, since its bias absorbs the
+constant. But gradient descent on it is miserable, because the gradient along the
+directions that carry information is scaled by their tiny magnitude relative to
+that enormous constant. The symptom is that overfitting ten samples, which ought
+to be trivial, stalls instead.
+
+Here is what we measured trying exactly that:
 
 | head | lr | loss after 400 steps |
 |---|---|---|
@@ -78,27 +131,43 @@ trivial, stalls.
 | **LayerNorm → Linear** | **1e-2** | **0.000000** |
 | LayerNorm → 512 → ReLU → 9 | 1e-3 | 0.000022 |
 
-`LayerNorm` centers and rescales each sample, putting the 5% that varies on
+`LayerNorm` centres and rescales each sample, which puts the 5% that varies on
 equal footing with the 95% that never does.
 
-**Two norms rather than one**, because the two streams have genuinely different
-scales. Pooling 64 vectors averages away much of the outlier structure that the
-single last token still carries at full magnitude. One shared norm would have
-to compromise between them.
+We use **two norms rather than one** because the two streams genuinely differ in
+scale. Averaging 64 image vectors washes out much of the outlier structure that
+the single last token still carries at full strength, so one shared norm would
+have to compromise between them.
 
-## No tanh
+## Why there's no tanh
 
-The behavior-cloning baseline this project grew out of had a `tanh` on the
-output, which is reasonable given an action space of `[−1, 1]`.
+The behavior-cloning policy this project grew out of had a `tanh` on its output,
+which is a reasonable thing to do when the action space is `[−1, 1]`.
 
-Leave it out. The gripper dimensions are exactly ±1 in 100% of demonstration
-steps, and `tanh` reaches ±1 only in the limit, so exact zero loss becomes
-unreachable and [the gate]({{< relref "chapters/11-the-gate" >}}) loses its only unambiguous
-reading. The environment clips to the valid range anyway, so the nonlinearity
-buys nothing and costs a diagnostic.
+We're leaving it out on purpose. The gripper dimensions are exactly ±1 in every
+demonstration step, and `tanh` only reaches ±1 in the limit, so exact zero loss
+would become unreachable. Chapter 11 is built entirely around a test that asks
+whether the loss can hit exactly zero, and we'd rather not blunt our only
+unambiguous diagnostic to gain a bound the environment already enforces by
+clipping.
 
 <div class="checkpoint">
 <span class="note-label">Check before you continue</span>
-<code>sum(p.numel() for p in head.parameters())</code> should print 21,129:
-two norms at 1,920 parameters each, and a 1,920 × 9 linear with bias.
+<code>sum(p.numel() for p in head.parameters())</code> should print
+<strong>21,129</strong>: two norms at 1,920 parameters each, plus a 1,920 × 9
+linear with its bias.
 </div>
+
+<div class="exercise">
+<h4>Exercise 8.1 &nbsp;Find the outlier dimensions yourself</h4>
+<p>Encode twenty frames, take the mean hidden state, and sort the dimensions by
+absolute magnitude. How many account for half the total? Then zero out the top
+five and recompute cosine similarity between frames.</p>
+<p>If cosine suddenly becomes informative, you've demonstrated the failure
+directly rather than taking our word for it, and you'll recognize it instantly
+the next time a similarity metric reads 0.99 on a model that's working fine.</p>
+</div>
+
+Next, we'll put every piece from the last four chapters into one file, and find
+out that the thing slowing our training down isn't the 460-million-parameter
+model at all.

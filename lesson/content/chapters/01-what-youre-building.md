@@ -26,8 +26,8 @@ useful than the code that eventually worked.
 
 ## Where this starts
 
-This isn't a from-scratch project, and it's worth being clear about that before
-you plan your afternoon. The repository began as a copy of a working
+This isn't a from-scratch project, and you should know that before you plan your
+afternoon. The repository began as a copy of a working
 behavior-cloning setup for the same environment: a convolutional policy, the
 Franka Kitchen wrappers, a demonstration collector driven by a gamepad, and a
 dataset loader. All of that existed and worked before any of this started.

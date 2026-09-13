@@ -7,8 +7,12 @@ standfirst: "The architecture worked long before we could tell. Three separate f
 ---
 
 Training loss is not the objective. The objective is whether the arm opens the
-cabinet. So the training loop stops every 2,500 epochs and runs rollouts:
-three tasks, three attempts each.
+cabinet. So every 2,500 epochs our training loop stops and runs rollouts: three
+tasks, three attempts each.
+
+This chapter is the longest in the guide and the one we'd most want you to read,
+because everything in it is a mistake we made rather than a technique we're
+recommending.
 
 <p class="filename">Filename: <strong>agent.py</strong></p>
 
@@ -29,11 +33,24 @@ def eval(self, epoch, summary_writer):
     torch.save(self.model.head.state_dict(), f"{self.model.checkpoint_file}.e{epoch}")
 ```
 
-Three rollouts per task was a deliberate, correct decision at the start.
-Rollouts are slow, early iteration matters more than precision, and any success
-above zero was the win condition. It was right on day one.
+<div class="output"><p class="output-label">In the training log this looks like</p>
 
-It stopped being right, and nothing announced the transition.
+```text
+Epoch: 2500 Loss: 0.07731256633996964
+  eval microwave: 0%
+  eval hinge cabinet: 0%
+  eval top burner: 33%
+  eval mean: 11%
+```
+</div>
+
+Three rollouts per task was a deliberate and, at the time, correct decision.
+Rollouts are slow, early iteration matters more than precision, and any success
+above zero was the win condition for our first milestone. It was right on day
+one.
+
+It stopped being right somewhere in the following week, and nothing announced
+the transition.
 
 ## The arithmetic nobody ran
 
@@ -54,9 +71,9 @@ There was never a trend to find.
 
 ## Measuring it properly
 
-No new ideas required, just more samples. Load any checkpoint, run it through
-the *same* `agent.test()` path at arbitrary `n`, and put an interval on the
-result.
+No new ideas are required here, only more samples. Let's load any checkpoint,
+run it through the *same* `agent.test()` path at arbitrary `n`, and put a
+confidence interval on the result.
 
 <p class="filename">Filename: <strong>scripts/evaluate.py</strong></p>
 
@@ -86,11 +103,22 @@ A <em class="term">Wilson interval</em> is the right one here because the
 ordinary normal approximation misbehaves near 0 and 1, and both ends are live:
 one task sits at zero, another has read 100%.
 
-Rollouts parallelize almost perfectly — each spends most of its wall clock
-waiting on the physics simulator, not the GPU — so run seven checkpoints at
-once on one card.
+Rollouts parallelize almost perfectly, because each one spends most of its wall
+clock waiting on the physics simulator rather than on the GPU, so we ran seven
+checkpoints at once on a single card.
 
-1,050 rollouts later, at 50 per task instead of 3:
+<div class="output"><p class="output-label">One checkpoint, 50 rollouts per task</p>
+
+```text
+checkpoints/run9/vla_network.e40000
+  hinge cabinet     34/50   68.0%  [54.2%, 79.2%]  732s
+  top burner        27/50   54.0%  [40.4%, 67.0%]  866s
+  MEAN              61/100   61.0%  [51.2%, 70.0%]
+```
+</div>
+
+Here is what 1,050 rollouts across every candidate checkpoint told us, at 50 per
+task instead of 3:
 
 | checkpoint | in-run (n=9) | offline (n=100) | 95% CI |
 |---|---|---|---|
@@ -181,6 +209,19 @@ belongs offline, at a sample size chosen from the effect you want to see.</li>
 </ol>
 </div>
 
-None of this was expensive. 1,050 rollouts took about 25 minutes on one GPU.
-The measurement that would have prevented a wasted night cost less than the
-night did.
+None of this was expensive. Those 1,050 rollouts took about 25 minutes on one
+GPU. The measurement that would have prevented a wasted night cost considerably
+less than the night did.
+
+<div class="exercise">
+<h4>Exercise 13.1 &nbsp;Work out your own resolution first</h4>
+<p>Before choosing a rollout count, decide what difference you need to detect.
+If you want to tell a 40% policy from a 50% one with non-overlapping 95%
+intervals, how many rollouts per task does that take? The Wilson function above
+is all you need to answer it.</p>
+<p>Do this <em>before</em> the run rather than after. We did it after, and this
+chapter is the result.</p>
+</div>
+
+Next, we'll collect the traps from across the whole build in one place, because
+five of the six turn out to be the same mistake wearing different clothes.

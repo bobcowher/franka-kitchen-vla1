@@ -3,10 +3,12 @@ title: "The prompt"
 part: "Part II · The pieces"
 chapter: 6
 weight: 6
-standfirst: "Seven instructions, tokenized once, and a padding bug with no loud failure mode."
+standfirst: "Seven instructions, tokenized once, and a padding bug that never raises."
 ---
 
-There are seven tasks and therefore seven instructions. They never change.
+There are seven tasks and therefore seven instructions, and they never change.
+That last fact is worth more than it sounds, because it means the entire text
+side of our input can be computed once at construction and then indexed.
 
 <p class="filename">Filename: <strong>tasks.py</strong></p>
 
@@ -27,15 +29,19 @@ TASK_DESCRIPTIONS = list(TASKS.values())
 _TASK_INDEX = {description: i for i, description in enumerate(TASK_DESCRIPTIONS)}
 ```
 
-That comment earns its place. The integer task id is a position in a Python
-dict. Reorder the dict and the model maps "open the microwave" onto weights
-learned for a different task, with nothing raising.
+That comment earns its place. A task's identity through the whole system is its
+position in this dictionary, so reordering it makes every existing checkpoint map
+"open the microwave" onto weights learned for a different task, and nothing
+anywhere will raise.
 
-## Tokenize once
+## Tokenizing all seven at once
 
-The text side of the input is a pure function of the task id, so build all
-seven prompts at construction and index them per batch.
+Let's build the prompts. The chat template wants a message with an image
+placeholder and the instruction text, and the processor needs some image to
+expand that placeholder into real token positions, so we hand it a black square
+and throw the pixels away.
 
+<p class="listing">Listing 6.1 <em>Building and tokenizing the seven prompts</em></p>
 <p class="filename">Filename: <strong>model.py</strong></p>
 
 ```python
@@ -55,34 +61,47 @@ def _build_prompts(self, processor):
                        padding=True, return_tensors="pt")
 ```
 
-The dummy image is there because the processor needs an image to expand the
-`{"type": "image"}` placeholder into real image-token positions. You throw the
-pixels away; only the token layout survives.
-
-This is not the prefix caching [Chapter 2]({{< relref "chapters/02-four-decisions" >}}) rejected. No
-VLM output is stored, only token ids, so unfreezing the model later invalidates
-none of it.
+This is not the prefix caching we ruled out in Chapter 2. We're storing token
+ids, not model outputs, so unfreezing the backbone later invalidates none of it.
 
 ## The padding problem
 
-"Open the microwave door" is 79 tokens. "Turn the oven knob for the bottom left
-burner" is 84. A batch mixing tasks has to pad, and padding collides
-immediately with a head that reads the last position.
+Let's look at what the tokenizer returned:
+
+```python
+print("prompt_ids shape  ", tuple(tokens["input_ids"].shape))
+print("real lengths      ", tokens["attention_mask"].sum(1).tolist())
+```
+
+<div class="output"><p class="output-label">This prints</p>
+
+```text
+prompt_ids shape   (7, 84)
+real lengths       [81, 83, 81, 79, 84, 84, 82]
+```
+</div>
+
+Every row is 84 long, but only two of them contain 84 real tokens. "Open the
+microwave door" is 79 tokens and "Turn the oven knob for the bottom left burner"
+is 84, so five of the seven rows have been padded on the right.
 
 <div class="trap">
 <span class="note-label">Trap</span>
-<p>Right-pad and read <code>last_hidden_state[:, -1]</code> and you read a
-<strong>pad token</strong> for every row shorter than the longest in the batch.
-Nothing raises. Nothing warns. The model learns worse for five of seven tasks
-and the loss curve looks entirely normal.</p>
-<p>Left-padding looks like the fix and is a different bug. <em class="term">RoPE</em>
-— rotary position embedding, how this model encodes where each token sits in
-the sequence — is computed from absolute index. Left-padding shifts every
-index, so the model sees the image at positions it was never pretrained on.</p>
+<p>Our head is going to read the last position of the sequence. If we reach for
+<code>last_hidden_state[:, -1]</code> we will read a <strong>pad token</strong>
+for five of the seven tasks. Nothing raises, nothing warns, and the loss curve
+looks entirely normal. The model simply learns worse for those five tasks.</p>
+<p>Left-padding looks like the obvious fix and is a different bug.
+<em>RoPE</em>, the rotary position embedding this model uses, encodes each
+token's place in the sequence from its absolute index. Padding on the left
+shifts every index, so the model would see the image at positions it was never
+pretrained to see it at.</p>
 </div>
 
-Right-pad, and gather each row's last real token:
+The answer is to right-pad and then *gather* each row's own last real token,
+which the attention mask already tells us how to find:
 
+<p class="listing">Listing 6.2 <em>Registering the prompts and the gather index</em></p>
 <p class="filename">Filename: <strong>model.py</strong></p>
 
 ```python
@@ -94,19 +113,27 @@ self.register_buffer("prompt_end", tokens["attention_mask"].sum(1) - 1,
                      persistent=False)
 ```
 
-Attention here is <em class="term">causal</em>: each position attends only to
-positions before it, never after. So a real token cannot see a later pad token,
-and the gathered hidden state is bit-identical to what you would get running
-that sequence unpadded. No masking subtleties, no position shift.
+<div class="output"><p class="output-label">Printing <code>prompt_end</code> gives</p>
 
-`persistent=False` keeps these out of the saved state dict. They are derived
-from the tokenizer, not learned.
+```text
+[80, 82, 80, 78, 83, 83, 81]
+```
+</div>
 
-## Locating the image tokens
+Because attention is *causal*, meaning each position attends only to positions
+before it and never after, a real token cannot see a pad token that follows it.
+The hidden state we gather at index 78 for the microwave prompt is therefore
+bit-identical to what we would get by running that 79-token sequence with no
+padding at all. No masking subtleties and no position shift.
 
-The next chapter needs to know which positions hold image content. The
-processor expands one `<image>` placeholder into 64 real image tokens, so find
-them by id.
+`persistent=False` keeps these three tensors out of the saved state dict, since
+they're derived from the tokenizer rather than learned.
+
+## Finding the image tokens
+
+Chapter 7 will want to read the image positions as well, so we need to know
+where they are. The processor expands our single `<image>` placeholder into a
+run of real image tokens, all sharing one id:
 
 <p class="filename">Filename: <strong>model.py</strong></p>
 
@@ -117,12 +144,36 @@ self.register_buffer(
         "<image>")).unsqueeze(-1), persistent=False)
 ```
 
-The `unsqueeze(-1)` adds a trailing dimension so the mask broadcasts over the
-960 features when you use it.
+<div class="output"><p class="output-label">The image token id, and the count per prompt</p>
+
+```text
+image token id           : 49190
+image tokens per prompt  : [64, 64, 64, 64, 64, 64, 64]
+```
+</div>
+
+Sixty-four image tokens in every prompt, which makes sense: the vision tower
+takes a 512-pixel image at patch 16, giving a 32×32 grid that gets pooled down to
+8×8. The `unsqueeze(-1)` adds a trailing dimension so the mask will broadcast
+over the 960 features when we use it.
 
 <div class="checkpoint">
 <span class="note-label">Check before you continue</span>
-Print <code>prompt_mask.sum(1)</code>. You should see seven numbers between 79
-and 84, not seven identical ones. Then print
-<code>image_positions.sum(1)</code> and confirm 64 for every task.
+Print <code>prompt_mask.sum(1)</code> and confirm you get seven <em>different</em>
+numbers between 79 and 84. Seven identical numbers means padding isn't being
+applied and you're about to debug something much harder later. Then confirm
+<code>image_positions.sum(1)</code> is 64 for every task.
 </div>
+
+<div class="exercise">
+<h4>Exercise 6.1 &nbsp;See the bug you just avoided</h4>
+<p>Gather the hidden state two ways for a batch containing several different
+tasks: once at <code>prompt_end</code>, and once at <code>-1</code>. Print the
+maximum absolute difference per row.</p>
+<p>Rows for the two longest instructions will agree exactly. The other five
+won't, and the size of that difference is what a silent bug looks like when you
+finally measure it.</p>
+</div>
+
+Next, we'll decide which positions the head should actually read, and it turns
+out the ordering of image and text in this prompt forces the answer.

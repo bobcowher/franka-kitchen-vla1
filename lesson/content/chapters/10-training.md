@@ -6,11 +6,14 @@ weight: 10
 standfirst: "Ordinary behavior cloning, one weighted loss term, and numbers for budgeting a run."
 ---
 
-Sample a batch, forward, mean squared error against the demonstrated action,
-step Adam on the head. Nothing exotic.
+Sample a batch, run it forward, compare against what the human did, step the
+optimizer. There is nothing exotic in this chapter, which is deliberate: the
+novel part of this build is the prefix, and we want a training loop boring
+enough that when something goes wrong we know it isn't here.
 
 ## Setting up
 
+<p class="listing">Listing 10.1 <em>Agent construction</em></p>
 <p class="filename">Filename: <strong>agent.py</strong></p>
 
 ```python
@@ -43,16 +46,18 @@ class Agent:
         self.optimizer = Adam(self.model.head.parameters(), lr=learning_rate)
 ```
 
-`num_actions` comes from the environment rather than a constant, so the head
-width can never disagree with what the environment accepts.
+Two details deserve a moment. `num_actions` comes from the environment rather
+than from a constant, so the head's output width can never quietly disagree with
+what the environment will accept.
 
-The optimizer is given `self.model.head.parameters()`, not
-`self.model.parameters()`. The VLM has `requires_grad=False` so its gradients
-would be `None` either way, but handing 460M frozen tensors to Adam makes it
-allocate optimizer state for them.
+And the optimizer is handed `self.model.head.parameters()`, not
+`self.model.parameters()`. The backbone has `requires_grad=False` so its
+gradients would be `None` either way, but handing Adam 460 million frozen
+tensors makes it allocate optimizer state for every one of them.
 
 ## The loop
 
+<p class="listing">Listing 10.2 <em>Behavior cloning, with the gripper weighted down</em></p>
 <p class="filename">Filename: <strong>agent.py</strong></p>
 
 ```python
@@ -87,19 +92,39 @@ def train(self, epochs, batch_size):
             self.eval(epoch, summary_writer)
 ```
 
-The split loss comes straight from the statistics in
-[Chapter 4]({{< relref "chapters/04-the-dataset" >}}). The gripper dimensions are binary and carry
-about 8× an arm joint's variance; unweighted they dominate the gradient and the
-model optimizes an easy binary decision at the expense of positioning the arm.
-Log `arm_loss` and `gripper_loss` separately as well as the total, or you
-cannot tell which half is moving.
+The split loss comes straight from the statistics we printed in Chapter 4.
+Dimensions 7 and 8 are binary and carry about eight times an arm joint's
+variance, so `GRIPPER_WEIGHT = 0.125` puts them back on comparable footing.
+Log the two halves separately as well as the total, or you won't be able to tell
+which one is moving.
+
+Here's what the first few thousand epochs look like:
+
+<div class="output"><p class="output-label">A real run, printing every 100 epochs</p>
+
+```text
+Loaded 56005 steps from /data/datasets/farama-kitchen-bc/dataset in 68.7s
+device: NVIDIA GeForce RTX 3090
+Epoch: 0 Loss: 0.4890671968460083
+Epoch: 100 Loss: 0.13493306934833527
+Epoch: 200 Loss: 0.1449355036020279
+Epoch: 300 Loss: 0.10025772452354431
+Epoch: 400 Loss: 0.11838166415691376
+Epoch: 500 Loss: 0.09118559956550598
+```
+</div>
+
+It drops fast and then starts bouncing around in a band. That band is normal here
+and it stays roughly 0.05 to 0.11 for the rest of the run. Do not read anything
+into small movements in it; Chapter 13 is a long argument about why.
 
 ## The rollout
 
-Evaluation runs the policy in the environment. This is the only code that
-exercises the environment path, so it catches an entire class of bug the
-training loop cannot.
+Evaluation runs the policy in the environment, and it's the only code that
+exercises the environment path at all, which makes it worth more than its line
+count suggests.
 
+<p class="listing">Listing 10.3 <em>One rollout</em></p>
 <p class="filename">Filename: <strong>agent.py</strong></p>
 
 ```python
@@ -122,7 +147,7 @@ def test(self, task, render_mode="rgb_array", delay=0):
     return total_reward > 0
 ```
 
-Success is any reward at all, since Franka Kitchen only pays out on task
+Success is any reward at all, because Franka Kitchen only pays out on task
 completion. The `squeeze()` drops the batch dimension the model always adds.
 
 ## Numbers for budgeting
@@ -134,23 +159,17 @@ completion. The `squeeze()` drops the batch dimension the model always adds.
   <div><dt>VRAM</dt><dd>2.9 GB</dd></div>
 </dl>
 
-2.55 epochs per second on an RTX 3090, so 100,000 epochs is about 11 hours of
-training plus roughly 100 minutes of in-loop evaluation.
-
-<div class="note">
-<span class="note-label">Reading this against the repository</span>
-The listings in Part II are the <strong>pre-unfreeze</strong> form, which is
-what you should write first. The repository is the finished state, so
-<code>model.py</code> and <code>agent.py</code> there also carry the unfreeze
-support from <a href="{{< relref "chapters/15-where-this-goes" >}}">Chapter 15</a>:
-<code>trainable_state_dict()</code> in place of the bare head save, and Adam
-parameter groups in place of a single parameter list. Build the simple version
-first. It is the one the gate in Part III is designed to test.
-</div>
+At 2.55 epochs per second on an RTX 3090, a hundred thousand epochs is about
+eleven hours of training plus roughly a hundred minutes of evaluation. Loading
+the dataset takes another 69 seconds at startup.
 
 <div class="checkpoint">
-<span class="note-label">Do not start a long run yet</span>
-Everything compiles and the loss goes down. That is not evidence it works.
-Part III is three cheap tests that tell you whether the thing you just built is
-learning, in ascending order of cost, and the first one takes under a minute.
+<span class="note-label">Don't start a long run yet</span>
+Everything compiles and the loss goes down, and neither of those is evidence
+that it works. Part III is three cheap tests that tell you whether what you just
+built is learning, in increasing order of cost, and the first one takes under a
+minute.
 </div>
+
+Next, we'll build that first test, which asks three questions in an order where
+each one only makes sense if the previous answer was yes.
